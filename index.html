@@ -58,8 +58,34 @@
           hidden
         >
 
+        <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Upload documents by dragging and dropping">
+          <p class="drop-zone-title">Drag &amp; drop files</p>
+          <p class="drop-zone-subtitle">or click to browse</p>
+        </div>
+
         <div id="document-list" class="document-list">
           <p class="empty-message">No documents uploaded.</p>
+        </div>
+      </div>
+
+      <div class="history-section">
+        <div class="section-heading">
+          <h2>Recent chats</h2>
+        </div>
+
+        <div class="history-list">
+          <button class="history-item active" type="button">
+            <span class="history-title">Q3 strategy summary</span>
+            <span class="history-meta">2 mins ago</span>
+          </button>
+          <button class="history-item" type="button">
+            <span class="history-title">Product requirements</span>
+            <span class="history-meta">Yesterday</span>
+          </button>
+          <button class="history-item" type="button">
+            <span class="history-title">Client onboarding notes</span>
+            <span class="history-meta">3 days ago</span>
+          </button>
         </div>
       </div>
     </aside>
@@ -78,10 +104,20 @@
         <article class="message assistant-message">
           <div class="avatar">AI</div>
 
-          <div class="message-content">
-            <p>
-              Upload a document and ask me questions about its content.
-            </p>
+          <div class="message-content-wrapper">
+            <div class="message-content">
+              <p>
+                Upload a document and ask me questions about its content.
+              </p>
+            </div>
+
+            <div class="citation-cards" aria-label="Source citations">
+              <div class="citation-card">
+                <span class="citation-label">Source 1</span>
+                <strong>Quarterly Report.pdf</strong>
+                <span class="citation-meta">Page 3 • Section: Revenue</span>
+              </div>
+            </div>
           </div>
         </article>
       </section>

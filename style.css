@@ -115,10 +115,45 @@ button {
   margin-top: 32px;
 }
 
+.history-section {
+  margin-top: 24px;
+}
+
 .section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.drop-zone {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px dashed #4b5563;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #d1d5db;
+  text-align: center;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.drop-zone:hover,
+.drop-zone:focus-visible,
+.drop-zone.is-dragging {
+  border-color: var(--accent);
+  background: rgba(124, 58, 237, 0.16);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.drop-zone-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.drop-zone-subtitle {
+  margin: 4px 0 0;
+  color: #9ca3af;
+  font-size: 12px;
 }
 
 .section-heading h2 {
@@ -140,24 +175,92 @@ button {
 
 .document-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   margin-top: 14px;
 }
 
 .document-item {
-  padding: 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
   overflow: hidden;
-  border-radius: 8px;
-  background: var(--sidebar-soft);
-  color: #d1d5db;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  color: #f9fafb;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.document-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(124, 58, 237, 0.24);
+  color: #ddd6fe;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.document-meta {
+  min-width: 0;
+}
+
+.document-name {
+  overflow: hidden;
+  color: #f9fafb;
   font-size: 13px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.document-details {
+  margin-top: 4px;
+  color: #9ca3af;
+  font-size: 11px;
 }
 
 .empty-message {
   color: #6b7280;
   font-size: 13px;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.history-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #d1d5db;
+  text-align: left;
+}
+
+.history-item:hover,
+.history-item.active {
+  background: var(--sidebar-soft);
+  color: white;
+}
+
+.history-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.history-meta {
+  color: #9ca3af;
+  font-size: 11px;
 }
 
 .workspace {
@@ -214,6 +317,13 @@ button {
   margin-bottom: 22px;
 }
 
+.message-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
 .user-message {
   flex-direction: row-reverse;
   margin-left: auto;
@@ -246,6 +356,39 @@ button {
 .user-message .message-content {
   background: var(--user-message);
   color: white;
+}
+
+.citation-cards {
+  display: grid;
+  gap: 8px;
+}
+
+.citation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f9fafb;
+}
+
+.citation-label {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.citation-card strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.citation-meta {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .chat-form {

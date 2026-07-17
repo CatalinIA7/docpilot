@@ -2,6 +2,7 @@
 
 const uploadButton = document.querySelector("#upload-button");
 const fileInput = document.querySelector("#file-input");
+const dropZone = document.querySelector("#drop-zone");
 const documentList = document.querySelector("#document-list");
 
 const chatForm = document.querySelector("#chat-form");
@@ -14,10 +15,21 @@ uploadButton.addEventListener("click", () => {
   fileInput.click();
 });
 
-fileInput.addEventListener("change", () => {
-  const files = Array.from(fileInput.files);
+dropZone.addEventListener("click", () => {
+  fileInput.click();
+});
 
-  files.forEach((file) => {
+dropZone.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    fileInput.click();
+  }
+});
+
+function handleFiles(files) {
+  const selectedFiles = Array.from(files);
+
+  selectedFiles.forEach((file) => {
     uploadedDocuments.push({
       id: crypto.randomUUID(),
       name: file.name,
@@ -26,7 +38,35 @@ fileInput.addEventListener("change", () => {
   });
 
   renderDocuments();
+}
+
+fileInput.addEventListener("change", () => {
+  handleFiles(fileInput.files);
   fileInput.value = "";
+});
+
+dropZone.addEventListener("dragenter", (event) => {
+  event.preventDefault();
+  dropZone.classList.add("is-dragging");
+});
+
+dropZone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  dropZone.classList.add("is-dragging");
+});
+
+dropZone.addEventListener("dragleave", (event) => {
+  if (event.relatedTarget && dropZone.contains(event.relatedTarget)) {
+    return;
+  }
+
+  dropZone.classList.remove("is-dragging");
+});
+
+dropZone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  dropZone.classList.remove("is-dragging");
+  handleFiles(event.dataTransfer.files);
 });
 
 chatForm.addEventListener("submit", (event) => {
@@ -64,13 +104,40 @@ function renderDocuments() {
 
   uploadedDocuments.forEach((document) => {
     const documentElement = document.createElement("div");
-
     documentElement.className = "document-item";
-    documentElement.textContent = document.name;
     documentElement.title = document.name;
 
+    const icon = document.createElement("div");
+    icon.className = "document-icon";
+    icon.textContent = "DOC";
+
+    const meta = document.createElement("div");
+    meta.className = "document-meta";
+
+    const name = document.createElement("div");
+    name.className = "document-name";
+    name.textContent = document.name;
+
+    const details = document.createElement("div");
+    details.className = "document-details";
+    details.textContent = `${formatFileSize(document.size)} • Ready for chat`;
+
+    meta.append(name, details);
+    documentElement.append(icon, meta);
     documentList.appendChild(documentElement);
   });
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function addMessage(text, sender) {
