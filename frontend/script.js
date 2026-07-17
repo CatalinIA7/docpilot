@@ -1,577 +1,203 @@
 "use strict";
+const API_URL = "http://127.0.0.1:8000";
+let mode = "login";
+let token = localStorage.getItem("docpilot_token");
+let currentDocuments = [];
+let isSearchActive = false;
 
-const STORAGE_KEY = "docpilot-v1.1-state";
-const API_BASE_URL = "http://127.0.0.1:8000";
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = new Set(["pdf", "docx"]);
+const $ = (selector) => document.querySelector(selector);
+const authView = $("#auth-view");
+const appView = $("#app-view");
+const authError = $("#auth-error");
+const documentList = $("#document-list");
+const emptyState = $("#empty-state");
+const searchInput = $("#search-input");
+const searchError = $("#search-error");
 
-const elements = {
-  uploadButton: document.querySelector("#upload-button"),
-  fileInput: document.querySelector("#file-input"),
-  dropZone: document.querySelector("#drop-zone"),
-  documentList: document.querySelector("#document-list"),
-  documentLibrary: document.querySelector("#document-library"),
-  chatForm: document.querySelector("#chat-form"),
-  messageInput: document.querySelector("#message-input"),
-  sendButton: document.querySelector("#send-button"),
-  chatMessages: document.querySelector("#chat-messages"),
-  historyList: document.querySelector("#history-list"),
-  newChatButton: document.querySelector("#new-chat-button"),
-  navItems: document.querySelectorAll(".nav-item"),
-  views: document.querySelectorAll(".view"),
-  viewTitle: document.querySelector("#view-title"),
-  persistenceToggle: document.querySelector("#persistence-toggle"),
-  clearDataButton: document.querySelector("#clear-data-button"),
-  authForm: document.querySelector("#auth-form"),
-  authEmail: document.querySelector("#auth-email"),
-  authPassword: document.querySelector("#auth-password"),
-  loginButton: document.querySelector("#login-button"),
-  registerButton: document.querySelector("#register-button"),
-  logoutButton: document.querySelector("#logout-button"),
-  authStatus: document.querySelector("#auth-status"),
-  toastRegion: document.querySelector("#toast-region")
-};
-
-let state = loadState();
-let isReplying = false;
-
-init();
-
-function init() {
-  bindEvents();
-  renderAll();
-  void restoreSession();
-}
-
-function defaultState() {
-  return {
-    persistence: true,
-    documents: [],
-    messages: [
-      {
-        id: crypto.randomUUID(),
-        sender: "assistant",
-        text: "Upload a document and ask me questions about its content. Sign in first to use the backend chat experience."
-      }
-    ],
-    history: [],
-    auth: {
-      token: null,
-      user: null,
-      status: "Not signed in."
+function api(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (!(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
+  return fetch(`${API_URL}${path}`, { ...options, headers }).then(async (response) => {
+    if (response.status === 204) return null;
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.detail || "Request failed");
+      error.status = response.status;
+      throw error;
     }
-  };
+    return data;
+  });
 }
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultState();
-    const parsed = JSON.parse(raw);
-    return { ...defaultState(), ...parsed };
-  } catch {
-    return defaultState();
-  }
+function setMode(nextMode) {
+  mode = nextMode;
+  $("#login-tab").classList.toggle("active", mode === "login");
+  $("#register-tab").classList.toggle("active", mode === "register");
+  $("#auth-submit").textContent = mode === "login" ? "Log in" : "Create account";
+  $("#password").autocomplete = mode === "login" ? "current-password" : "new-password";
+  authError.textContent = "";
 }
 
-function saveState() {
-  if (state.persistence) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
+function setSearchError(message = "") {
+  searchError.textContent = message;
 }
 
-function bindEvents() {
-  elements.uploadButton.addEventListener("click", openFilePicker);
-  elements.dropZone.addEventListener("click", openFilePicker);
-  elements.dropZone.addEventListener("keydown", event => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      openFilePicker();
+function renderDocuments(documents) {
+  currentDocuments = documents;
+  documentList.innerHTML = "";
+  emptyState.classList.toggle("hidden", documents.length > 0);
+  $("#document-count").textContent = `${documents.length} document${documents.length === 1 ? "" : "s"}`;
+  if (documents.length === 0) {
+    if (isSearchActive) {
+      emptyState.querySelector("h2").textContent = "No matching documents found";
+      emptyState.querySelector("p").textContent = "Try a different term or clear the search.";
+    } else {
+      emptyState.querySelector("h2").textContent = "No documents yet";
+      emptyState.querySelector("p").textContent = "Upload a DOCX or PDF to extract and store its text.";
     }
-  });
-  elements.fileInput.addEventListener("change", () => {
-    void handleFiles(elements.fileInput.files);
-    elements.fileInput.value = "";
-  });
-  ["dragenter", "dragover"].forEach(type => elements.dropZone.addEventListener(type, event => {
-    event.preventDefault();
-    elements.dropZone.classList.add("is-dragging");
-  }));
-  elements.dropZone.addEventListener("dragleave", event => {
-    if (!event.relatedTarget || !elements.dropZone.contains(event.relatedTarget)) {
-      elements.dropZone.classList.remove("is-dragging");
-    }
-  });
-  elements.dropZone.addEventListener("drop", event => {
-    event.preventDefault();
-    elements.dropZone.classList.remove("is-dragging");
-    handleFiles(event.dataTransfer.files);
-  });
-  elements.documentList.addEventListener("click", handleDeleteClick);
-  elements.documentLibrary.addEventListener("click", handleDeleteClick);
-  elements.chatForm.addEventListener("submit", handleMessageSubmit);
-  elements.messageInput.addEventListener("keydown", event => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      elements.chatForm.requestSubmit();
-    }
-  });
-  elements.newChatButton.addEventListener("click", startNewConversation);
-  elements.navItems.forEach(item => item.addEventListener("click", () => switchView(item.dataset.view)));
-  elements.persistenceToggle.addEventListener("change", () => {
-    state.persistence = elements.persistenceToggle.checked;
-    saveState();
-    showToast(state.persistence ? "Local session saving enabled." : "Local session saving disabled.", "success");
-  });
-  elements.clearDataButton.addEventListener("click", clearLocalData);
-  elements.authForm.addEventListener("submit", event => {
-    event.preventDefault();
-    void handleAuthSubmit("login");
-  });
-  elements.loginButton.addEventListener("click", () => void handleAuthSubmit("login"));
-  elements.registerButton.addEventListener("click", () => void handleAuthSubmit("register"));
-  elements.logoutButton.addEventListener("click", handleLogout);
-}
-
-async function handleAuthSubmit(mode) {
-  const email = elements.authEmail.value.trim();
-  const password = elements.authPassword.value;
-
-  if (!email || !password) {
-    showToast("Please enter an email and password.", "error");
-    return;
   }
-
-  try {
-    const payload = await authenticateUser(mode, email, password);
-    state.auth.token = payload.access_token;
-    const user = await fetchCurrentUser(payload.access_token);
-    state.auth.user = user;
-    state.auth.status = `Signed in as ${user.email}`;
-    saveState();
-    renderAuthStatus();
-    showToast(mode === "register" ? "Account created and signed in." : "Signed in successfully.", "success");
-  } catch (error) {
-    showToast(error.message, "error");
-  }
-}
-
-async function authenticateUser(mode, email, password) {
-  if (mode === "register") {
-    const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
+  for (const document of documents) {
+    const card = window.document.createElement("article");
+    card.className = "document-card";
+    card.innerHTML = `<h3></h3><div class="meta"></div><p class="preview"></p><button class="delete-button">Delete</button>`;
+    card.querySelector("h3").textContent = document.filename;
+    card.querySelector(".meta").textContent = `${document.file_type.toUpperCase()} • ${document.word_count} words • ${formatDate(document.created_at)}`;
+    card.querySelector(".preview").textContent = document.preview || "No extractable text found.";
+    card.querySelector("button").addEventListener("click", async () => {
+      if (!confirm(`Delete ${document.filename}?`)) return;
+      await api(`/documents/${document.id}`, { method: "DELETE" });
+      await loadDocuments();
     });
-
-    const registerPayload = await registerResponse.json().catch(() => null);
-    if (!registerResponse.ok) {
-      throw new Error(registerPayload?.detail || "Registration failed.");
-    }
+    documentList.appendChild(card);
   }
-
-  const loginResponse = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
-  });
-
-  const loginPayload = await loginResponse.json().catch(() => null);
-  if (!loginResponse.ok) {
-    throw new Error(loginPayload?.detail || "Login failed.");
-  }
-
-  return loginPayload;
 }
 
-async function fetchCurrentUser(token) {
-  const response = await fetch(`${API_BASE_URL}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(payload?.detail || "Unable to verify the current session.");
+async function showApp() {
+  try {
+    const user = await api("/auth/me");
+    $("#user-email").textContent = user.email;
+    authView.classList.add("hidden");
+    appView.classList.remove("hidden");
+    await loadDocuments();
+  } catch {
+    logout();
   }
-
-  return payload;
 }
 
-async function restoreSession() {
-  if (!state.auth?.token) {
-    renderAuthStatus();
+function logout() {
+  token = null;
+  localStorage.removeItem("docpilot_token");
+  appView.classList.add("hidden");
+  authView.classList.remove("hidden");
+}
+
+async function loadDocuments() {
+  isSearchActive = false;
+  setSearchError();
+  const documents = await api("/documents");
+  renderDocuments(documents);
+}
+
+async function searchDocuments() {
+  const query = searchInput.value.trim();
+  if (!query) {
+    setSearchError("Please enter a search term.");
     return;
   }
-
+  setSearchError("");
+  isSearchActive = true;
+  documentList.innerHTML = '<p class="preview">Searching…</p>';
+  emptyState.classList.add("hidden");
+  $("#document-count").textContent = "Searching…";
   try {
-    const user = await fetchCurrentUser(state.auth.token);
-    state.auth.user = user;
-    state.auth.status = `Signed in as ${user.email}`;
-    renderAuthStatus();
-  } catch {
-    state.auth.token = null;
-    state.auth.user = null;
-    state.auth.status = "Not signed in.";
-    saveState();
-    renderAuthStatus();
+    const documents = await api(`/documents/search?q=${encodeURIComponent(query)}`);
+    renderDocuments(documents);
+  } catch (error) {
+    if (error.status === 401) {
+      logout();
+      return;
+    }
+    if (error.status === 400) {
+      setSearchError("Please enter a search term.");
+      await loadDocuments();
+      return;
+    }
+    const friendlyMessage = error.message === "Request failed" || error.message === "Failed to fetch"
+      ? "Unable to reach the server. Please try again."
+      : error.message;
+    setSearchError(friendlyMessage);
+    renderDocuments([]);
   }
 }
 
-function handleLogout() {
-  state.auth = { token: null, user: null, status: "Not signed in." };
-  saveState();
-  renderAuthStatus();
-  showToast("Signed out.", "success");
+function formatDate(value) {
+  return new Date(value).toLocaleDateString();
 }
 
-function openFilePicker() {
-  elements.fileInput.click();
-}
-
-async function handleFiles(fileList) {
-  const files = Array.from(fileList);
-  if (!files.length) return;
-
-  let added = 0;
-
-  for (const file of files) {
-    const extension = getExtension(file.name);
-    if (!ALLOWED_EXTENSIONS.has(extension)) {
-      showToast(`${file.name}: unsupported file type.`, "error");
-      continue;
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      showToast(`${file.name}: file exceeds the 10 MB limit.`, "error");
-      continue;
-    }
-    const duplicate = state.documents.some(doc => doc.name.toLowerCase() === file.name.toLowerCase() && doc.size === file.size);
-    if (duplicate) {
-      showToast(`${file.name}: already added.`, "error");
-      continue;
-    }
-
-    try {
-      const uploadedDocument = await uploadDocumentToApi(file);
-      state.documents.push({
-        id: uploadedDocument.id || crypto.randomUUID(),
-        name: uploadedDocument.filename || file.name,
-        size: uploadedDocument.size || file.size,
-        extension: uploadedDocument.file_type || extension,
-        addedAt: new Date().toISOString(),
-        remoteId: uploadedDocument.id || null,
-        status: uploadedDocument.status || "processed"
-      });
-      added += 1;
-      showToast(`${file.name}: uploaded successfully.`, "success");
-    } catch (error) {
-      showToast(`${file.name}: ${error.message}`, "error");
-    }
-  }
-
-  if (added) {
-    saveState();
-    renderDocuments();
-  }
-}
-
-async function uploadDocumentToApi(file) {
-  if (!state.auth?.token) {
-    throw new Error("Please sign in before uploading documents.");
-  }
-
+async function upload(file) {
   const formData = new FormData();
   formData.append("file", file);
-
-  const response = await fetch(`${API_BASE_URL}/documents`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${state.auth.token}` },
-    body: formData
-  });
-
-  const payload = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(payload?.detail || "The upload could not be completed.");
-  }
-
-  return payload;
-}
-
-function handleDeleteClick(event) {
-  const button = event.target.closest("[data-delete-document]");
-  if (!button) return;
-  const document = state.documents.find(doc => doc.id === button.dataset.deleteDocument);
-  state.documents = state.documents.filter(doc => doc.id !== button.dataset.deleteDocument);
-  saveState();
-  renderDocuments();
-  showToast(`${document?.name || "Document"} removed.`, "success");
-}
-
-async function handleMessageSubmit(event) {
-  event.preventDefault();
-  if (isReplying) return;
-  const text = elements.messageInput.value.trim();
-  if (!text) return;
-
-  addMessage({ sender: "user", text });
-  elements.messageInput.value = "";
-  addHistoryItem(text);
-
-  isReplying = true;
-  elements.sendButton.disabled = true;
-  const typingId = showTypingIndicator();
-
+  showNotice(`Uploading ${file.name}…`);
   try {
-    const response = await askBackend(text);
-    removeMessageElement(typingId);
-    addMessage({
-      sender: "assistant",
-      text: response.answer,
-      citations: response.citations
-    });
+    await api("/documents", { method: "POST", body: formData });
+    showNotice(`${file.name} uploaded successfully.`);
+    await loadDocuments();
   } catch (error) {
-    removeMessageElement(typingId);
-    addMessage({ sender: "assistant", text: `I couldn’t answer that yet. ${error.message}` });
-  } finally {
-    isReplying = false;
-    elements.sendButton.disabled = false;
-    elements.messageInput.focus();
+    showNotice(error.message);
   }
 }
 
-async function askBackend(question) {
-  if (!state.auth?.token) {
-    throw new Error("Please sign in before asking questions.");
-  }
-
-  const response = await fetch(`${API_BASE_URL}/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${state.auth.token}`
-    },
-    body: JSON.stringify({ question })
-  });
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(payload?.detail || "The chat request failed.");
-  }
-
-  return payload;
+function showNotice(message) {
+  const notice = $("#notice");
+  notice.textContent = message;
+  notice.classList.remove("hidden");
 }
 
-function addMessage(message) {
-  const fullMessage = { id: crypto.randomUUID(), ...message };
-  state.messages.push(fullMessage);
-  saveState();
-  renderMessage(fullMessage);
-  scrollChatToBottom();
-}
-
-function renderMessage(message) {
-  const article = document.createElement("article");
-  article.className = `message ${message.sender}-message`;
-  article.dataset.messageId = message.id;
-
-  const avatar = document.createElement("div");
-  avatar.className = "avatar";
-  avatar.textContent = message.sender === "assistant" ? "AI" : "You";
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "message-content-wrapper";
-  const content = document.createElement("div");
-  content.className = "message-content";
-  const paragraph = document.createElement("p");
-  paragraph.textContent = message.text;
-  content.appendChild(paragraph);
-  wrapper.appendChild(content);
-
-  if (message.citations?.length) {
-    const citations = document.createElement("div");
-    citations.className = "citation-cards";
-    message.citations.forEach((citation, index) => {
-      const card = document.createElement("div");
-      card.className = "citation-card";
-      const label = document.createElement("span");
-      label.className = "citation-label";
-      label.textContent = `Source ${index + 1}`;
-      const name = document.createElement("strong");
-      name.textContent = citation.documentName;
-      const meta = document.createElement("span");
-      meta.className = "citation-meta";
-      meta.textContent = citation.meta;
-      card.append(label, name, meta);
-      citations.appendChild(card);
-    });
-    wrapper.appendChild(citations);
-  }
-
-  article.append(avatar, wrapper);
-  elements.chatMessages.appendChild(article);
-}
-
-function showTypingIndicator() {
-  const id = crypto.randomUUID();
-  const article = document.createElement("article");
-  article.className = "message assistant-message";
-  article.dataset.messageId = id;
-  article.innerHTML = '<div class="avatar">AI</div><div class="message-content"><div class="typing-dots" aria-label="DocPilot is typing"><span></span><span></span><span></span></div></div>';
-  elements.chatMessages.appendChild(article);
-  scrollChatToBottom();
-  return id;
-}
-
-function removeMessageElement(id) {
-  elements.chatMessages.querySelector(`[data-message-id="${id}"]`)?.remove();
-}
-
-function addHistoryItem(question) {
-  state.history.unshift({ id: crypto.randomUUID(), title: question.slice(0, 48), createdAt: new Date().toISOString() });
-  state.history = state.history.slice(0, 5);
-  saveState();
-  renderHistory();
-}
-
-function startNewConversation() {
-  state.messages = [{ id: crypto.randomUUID(), sender: "assistant", text: "New conversation started. Upload a document or ask another question." }];
-  saveState();
-  renderMessages();
-  switchView("chat");
-  showToast("New conversation started.", "success");
-}
-
-function switchView(viewName) {
-  const titleMap = { chat: "Chat with your documents", documents: "Document library", settings: "Settings" };
-  elements.navItems.forEach(item => item.classList.toggle("active", item.dataset.view === viewName));
-  elements.views.forEach(view => {
-    const active = view.id === `${viewName}-view`;
-    view.hidden = !active;
-    view.classList.toggle("active-view", active && viewName === "chat");
-  });
-  elements.viewTitle.textContent = titleMap[viewName];
-}
-
-function clearLocalData() {
-  localStorage.removeItem(STORAGE_KEY);
-  state = defaultState();
-  renderAll();
-  switchView("chat");
-  showToast("Local DocPilot data cleared.", "success");
-}
-
-function renderAll() {
-  elements.persistenceToggle.checked = state.persistence;
-  renderDocuments();
-  renderMessages();
-  renderHistory();
-  renderAuthStatus();
-}
-
-function renderAuthStatus() {
-  const currentUser = state.auth?.user?.email || state.auth?.status || "Not signed in.";
-  elements.authStatus.textContent = state.auth?.token ? `Signed in as ${currentUser}` : state.auth?.status || "Not signed in.";
-  elements.logoutButton.disabled = !state.auth?.token;
-}
-
-function renderDocuments() {
-  elements.documentList.innerHTML = "";
-  elements.documentLibrary.innerHTML = "";
-  if (!state.documents.length) {
-    elements.documentList.innerHTML = '<p class="empty-message">No documents uploaded.</p>';
-    elements.documentLibrary.innerHTML = '<p class="empty-message">Your library is empty.</p>';
-    return;
-  }
-
-  state.documents.forEach(doc => {
-    const sidebarItem = document.createElement("div");
-    sidebarItem.className = "document-item";
-    sidebarItem.innerHTML = `<div class="document-icon">${escapeHTML(doc.extension.toUpperCase())}</div><div class="document-meta"><div class="document-name"></div><div class="document-details">${formatFileSize(doc.size)} · Ready</div></div><button class="delete-document" type="button" data-delete-document="${doc.id}" aria-label="Remove document">×</button>`;
-    sidebarItem.querySelector(".document-name").textContent = doc.name;
-    elements.documentList.appendChild(sidebarItem);
-
-    const card = document.createElement("article");
-    card.className = "library-card";
-    const name = document.createElement("strong");
-    name.textContent = doc.name;
-    const meta = document.createElement("span");
-    meta.textContent = `${doc.extension.toUpperCase()} · ${formatFileSize(doc.size)}`;
-    const remove = document.createElement("button");
-    remove.className = "danger-button";
-    remove.type = "button";
-    remove.dataset.deleteDocument = doc.id;
-    remove.textContent = "Remove";
-    card.append(name, meta, remove);
-    elements.documentLibrary.appendChild(card);
-  });
-}
-
-function renderMessages() {
-  elements.chatMessages.innerHTML = "";
-  state.messages.forEach(renderMessage);
-  scrollChatToBottom();
-}
-
-function renderHistory() {
-  elements.historyList.innerHTML = "";
-  if (!state.history.length) {
-    elements.historyList.innerHTML = '<p class="empty-message">No recent chats.</p>';
-    return;
-  }
-  state.history.forEach(item => {
-    const button = document.createElement("button");
-    button.className = "history-item";
-    button.type = "button";
-    const title = document.createElement("span");
-    title.className = "history-title";
-    title.textContent = item.title;
-    const meta = document.createElement("span");
-    meta.className = "history-meta";
-    meta.textContent = formatRelativeDate(item.createdAt);
-    button.append(title, meta);
-    button.addEventListener("click", () => switchView("chat"));
-    elements.historyList.appendChild(button);
-  });
-}
-
-function showToast(message, type = "success") {
-  const toast = document.createElement("div");
-  toast.className = `toast ${type}`;
-  toast.textContent = message;
-  elements.toastRegion.appendChild(toast);
-  window.setTimeout(() => toast.remove(), 3200);
-}
-
-function getExtension(filename) {
-  return filename.includes(".") ? filename.split(".").pop().toLowerCase() : "";
-}
-
-function formatFileSize(bytes) {
+function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 }
 
-function formatRelativeDate(dateString) {
-  const seconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
-  if (seconds < 60) return "Just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  return `${Math.floor(hours / 24)} day(s) ago`;
-}
+$("#login-tab").addEventListener("click", () => setMode("login"));
+$("#register-tab").addEventListener("click", () => setMode("register"));
+$("#logout-button").addEventListener("click", logout);
+$("#auth-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authError.textContent = "";
+  try {
+    const result = await api(`/auth/${mode}`, {
+      method: "POST",
+      body: JSON.stringify({ email: $("#email").value, password: $("#password").value }),
+    });
+    token = result.access_token;
+    localStorage.setItem("docpilot_token", token);
+    await showApp();
+  } catch (error) {
+    authError.textContent = error.message;
+  }
+});
 
-function scrollChatToBottom() {
-  requestAnimationFrame(() => { elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight; });
-}
+const fileInput = $("#file-input");
+const dropZone = $("#drop-zone");
+$("#upload-button").addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => { if (fileInput.files[0]) upload(fileInput.files[0]); fileInput.value = ""; });
+["dragenter", "dragover"].forEach((name) => dropZone.addEventListener(name, (event) => { event.preventDefault(); dropZone.classList.add("dragging"); }));
+["dragleave", "drop"].forEach((name) => dropZone.addEventListener(name, (event) => { event.preventDefault(); dropZone.classList.remove("dragging"); }));
+dropZone.addEventListener("drop", (event) => { if (event.dataTransfer.files[0]) upload(event.dataTransfer.files[0]); });
+dropZone.addEventListener("click", () => fileInput.click());
+$("#search-button").addEventListener("click", searchDocuments);
+$("#clear-search-button").addEventListener("click", async () => {
+  searchInput.value = "";
+  setSearchError("");
+  await loadDocuments();
+});
+searchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    searchDocuments();
+  }
+});
 
-function delay(ms) {
-  return new Promise(resolve => window.setTimeout(resolve, ms));
-}
-
-function escapeHTML(value) {
-  return value.replace(/[&<>'"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
-}
+if (token) showApp();

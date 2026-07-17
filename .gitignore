@@ -5,3 +5,4 @@ uploads/
 .venv/
 venv/
 .DS_Store
+.venv-3.10/
