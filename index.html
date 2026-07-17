@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta
+    name="description"
+    content="DocPilot lets users upload documents and ask questions about their content."
+  >
+
+  <title>DocPilot</title>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">D</div>
+
+        <div>
+          <h1>DocPilot</h1>
+          <p>AI document workspace</p>
+        </div>
+      </div>
+
+      <button class="new-chat-button" type="button">
+        + New conversation
+      </button>
+
+      <nav class="navigation">
+        <button class="nav-item active" type="button">
+          Chat
+        </button>
+
+        <button class="nav-item" type="button">
+          Documents
+        </button>
+
+        <button class="nav-item" type="button">
+          Settings
+        </button>
+      </nav>
+
+      <div class="document-section">
+        <div class="section-heading">
+          <h2>Documents</h2>
+          <button id="upload-button" type="button" aria-label="Upload document">
+            +
+          </button>
+        </div>
+
+        <input
+          id="file-input"
+          type="file"
+          accept=".pdf,.txt,.doc,.docx"
+          hidden
+        >
+
+        <div id="document-list" class="document-list">
+          <p class="empty-message">No documents uploaded.</p>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Document assistant</p>
+          <h2>Chat with your documents</h2>
+        </div>
+
+        <span class="status-badge">Prototype</span>
+      </header>
+
+      <section id="chat-messages" class="chat-messages">
+        <article class="message assistant-message">
+          <div class="avatar">AI</div>
+
+          <div class="message-content">
+            <p>
+              Upload a document and ask me questions about its content.
+            </p>
+          </div>
+        </article>
+      </section>
+
+      <form id="chat-form" class="chat-form">
+        <textarea
+          id="message-input"
+          rows="1"
+          placeholder="Ask a question about your documents..."
+          required
+        ></textarea>
+
+        <button type="submit">Send</button>
+      </form>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
