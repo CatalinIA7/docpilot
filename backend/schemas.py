@@ -36,3 +36,11 @@ class DocumentResponse(BaseModel):
     character_count: int
     paragraph_count: int
     created_at: datetime
+
+
+class DocumentSearchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    filename: str
+    created_at: datetime
+    preview: str

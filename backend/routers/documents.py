@@ -1,16 +1,35 @@
 from pathlib import Path
 from uuid import uuid4
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from auth import get_current_user
 from config import ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE, UPLOAD_DIR
 from database import get_db
 from document_parser import extract_document_text
 from models import Document, User
-from schemas import DocumentResponse
+from schemas import DocumentResponse, DocumentSearchResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+def _build_preview(document: Document, query: str) -> str:
+    if document.text:
+        lowered_query = query.lower()
+        lowered_text = document.text.lower()
+        match_index = lowered_text.find(lowered_query)
+        if match_index != -1:
+            start = max(0, match_index - 60)
+            end = min(len(document.text), match_index + len(query) + 60)
+            preview = document.text[start:end].strip()
+            if start > 0:
+                preview = "…" + preview
+            if end < len(document.text):
+                preview = preview + "…"
+            return preview
+    if query.lower() in document.filename.lower():
+        return f"Filename match: {document.filename}"
+    return document.preview or ""
 
 
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -66,6 +85,41 @@ def list_documents(
         .where(Document.user_id == current_user.id)
         .order_by(Document.created_at.desc())
     ))
+
+
+@router.get("/search", response_model=list[DocumentSearchResponse])
+def search_documents(
+    q: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    query = (q or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query parameter 'q' must not be empty")
+
+    search_term = query.lower()
+    documents = db.scalars(
+        select(Document)
+        .where(Document.user_id == current_user.id)
+        .where(
+            or_(
+                func.lower(Document.filename).contains(search_term),
+                func.lower(Document.text).contains(search_term),
+            )
+        )
+        .order_by(Document.created_at.desc())
+        .limit(20)
+    )
+
+    return [
+        DocumentSearchResponse(
+            id=document.id,
+            filename=document.filename,
+            created_at=document.created_at,
+            preview=_build_preview(document, query),
+        )
+        for document in documents
+    ]
 
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
