@@ -2,6 +2,8 @@
 const API_URL = "http://127.0.0.1:8000";
 let mode = "login";
 let token = localStorage.getItem("docpilot_token");
+let currentDocuments = [];
+let isSearchActive = false;
 
 const $ = (selector) => document.querySelector(selector);
 const authView = $("#auth-view");
@@ -9,6 +11,8 @@ const appView = $("#app-view");
 const authError = $("#auth-error");
 const documentList = $("#document-list");
 const emptyState = $("#empty-state");
+const searchInput = $("#search-input");
+const searchError = $("#search-error");
 
 function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -17,7 +21,11 @@ function api(path, options = {}) {
   return fetch(`${API_URL}${path}`, { ...options, headers }).then(async (response) => {
     if (response.status === 204) return null;
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.detail || "Request failed");
+    if (!response.ok) {
+      const error = new Error(data.detail || "Request failed");
+      error.status = response.status;
+      throw error;
+    }
     return data;
   });
 }
@@ -29,6 +37,40 @@ function setMode(nextMode) {
   $("#auth-submit").textContent = mode === "login" ? "Log in" : "Create account";
   $("#password").autocomplete = mode === "login" ? "current-password" : "new-password";
   authError.textContent = "";
+}
+
+function setSearchError(message = "") {
+  searchError.textContent = message;
+}
+
+function renderDocuments(documents) {
+  currentDocuments = documents;
+  documentList.innerHTML = "";
+  emptyState.classList.toggle("hidden", documents.length > 0);
+  $("#document-count").textContent = `${documents.length} document${documents.length === 1 ? "" : "s"}`;
+  if (documents.length === 0) {
+    if (isSearchActive) {
+      emptyState.querySelector("h2").textContent = "No matching documents found";
+      emptyState.querySelector("p").textContent = "Try a different term or clear the search.";
+    } else {
+      emptyState.querySelector("h2").textContent = "No documents yet";
+      emptyState.querySelector("p").textContent = "Upload a DOCX or PDF to extract and store its text.";
+    }
+  }
+  for (const document of documents) {
+    const card = window.document.createElement("article");
+    card.className = "document-card";
+    card.innerHTML = `<h3></h3><div class="meta"></div><p class="preview"></p><button class="delete-button">Delete</button>`;
+    card.querySelector("h3").textContent = document.filename;
+    card.querySelector(".meta").textContent = `${document.file_type.toUpperCase()} • ${document.word_count} words • ${formatDate(document.created_at)}`;
+    card.querySelector(".preview").textContent = document.preview || "No extractable text found.";
+    card.querySelector("button").addEventListener("click", async () => {
+      if (!confirm(`Delete ${document.filename}?`)) return;
+      await api(`/documents/${document.id}`, { method: "DELETE" });
+      await loadDocuments();
+    });
+    documentList.appendChild(card);
+  }
 }
 
 async function showApp() {
@@ -51,24 +93,46 @@ function logout() {
 }
 
 async function loadDocuments() {
+  isSearchActive = false;
+  setSearchError();
   const documents = await api("/documents");
-  documentList.innerHTML = "";
-  emptyState.classList.toggle("hidden", documents.length > 0);
-  $("#document-count").textContent = `${documents.length} document${documents.length === 1 ? "" : "s"}`;
-  for (const document of documents) {
-    const card = window.document.createElement("article");
-    card.className = "document-card";
-    card.innerHTML = `<h3></h3><div class="meta"></div><p class="preview"></p><button class="delete-button">Delete</button>`;
-    card.querySelector("h3").textContent = document.filename;
-    card.querySelector(".meta").textContent = `${document.file_type.toUpperCase()} • ${document.word_count} words • ${formatBytes(document.size)}`;
-    card.querySelector(".preview").textContent = document.preview || "No extractable text found.";
-    card.querySelector("button").addEventListener("click", async () => {
-      if (!confirm(`Delete ${document.filename}?`)) return;
-      await api(`/documents/${document.id}`, { method: "DELETE" });
-      await loadDocuments();
-    });
-    documentList.appendChild(card);
+  renderDocuments(documents);
+}
+
+async function searchDocuments() {
+  const query = searchInput.value.trim();
+  if (!query) {
+    setSearchError("Please enter a search term.");
+    return;
   }
+  setSearchError("");
+  isSearchActive = true;
+  documentList.innerHTML = '<p class="preview">Searching…</p>';
+  emptyState.classList.add("hidden");
+  $("#document-count").textContent = "Searching…";
+  try {
+    const documents = await api(`/documents/search?q=${encodeURIComponent(query)}`);
+    renderDocuments(documents);
+  } catch (error) {
+    if (error.status === 401) {
+      logout();
+      return;
+    }
+    if (error.status === 400) {
+      setSearchError("Please enter a search term.");
+      await loadDocuments();
+      return;
+    }
+    const friendlyMessage = error.message === "Request failed" || error.message === "Failed to fetch"
+      ? "Unable to reach the server. Please try again."
+      : error.message;
+    setSearchError(friendlyMessage);
+    renderDocuments([]);
+  }
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleDateString();
 }
 
 async function upload(file) {
@@ -123,5 +187,17 @@ fileInput.addEventListener("change", () => { if (fileInput.files[0]) upload(file
 ["dragleave", "drop"].forEach((name) => dropZone.addEventListener(name, (event) => { event.preventDefault(); dropZone.classList.remove("dragging"); }));
 dropZone.addEventListener("drop", (event) => { if (event.dataTransfer.files[0]) upload(event.dataTransfer.files[0]); });
 dropZone.addEventListener("click", () => fileInput.click());
+$("#search-button").addEventListener("click", searchDocuments);
+$("#clear-search-button").addEventListener("click", async () => {
+  searchInput.value = "";
+  setSearchError("");
+  await loadDocuments();
+});
+searchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    searchDocuments();
+  }
+});
 
 if (token) showApp();

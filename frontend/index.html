@@ -31,6 +31,12 @@
       </aside>
       <section class="workspace">
         <header><div><span class="eyebrow">Library</span><h1>Your documents</h1></div><span id="document-count" class="badge">0 documents</span></header>
+        <div class="search-bar">
+          <input id="search-input" type="search" placeholder="Search documents by filename or text">
+          <button id="search-button" class="primary search-button">Search</button>
+          <button id="clear-search-button" class="secondary search-button">Clear</button>
+        </div>
+        <p id="search-error" class="error search-error" role="alert"></p>
         <div id="notice" class="notice hidden"></div>
         <div id="document-list" class="document-grid"></div>
         <div id="empty-state" class="empty-state"><h2>No documents yet</h2><p>Upload a DOCX or PDF to extract and store its text.</p></div>
