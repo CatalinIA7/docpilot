@@ -3,138 +3,75 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta
-    name="description"
-    content="DocPilot lets users upload documents and ask questions about their content."
-  >
-
-  <title>DocPilot</title>
-
+  <meta name="description" content="DocPilot is an AI document workspace prototype for uploading files and asking sourced questions.">
+  <title>DocPilot V1.1</title>
   <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-logo">D</div>
-
-        <div>
-          <h1>DocPilot</h1>
-          <p>AI document workspace</p>
-        </div>
+        <div class="brand-logo" aria-hidden="true">D</div>
+        <div><h1>DocPilot</h1><p>AI document workspace</p></div>
       </div>
 
-      <button class="new-chat-button" type="button">
-        + New conversation
-      </button>
+      <button id="new-chat-button" class="new-chat-button" type="button">+ New conversation</button>
 
-      <nav class="navigation">
-        <button class="nav-item active" type="button">
-          Chat
-        </button>
-
-        <button class="nav-item" type="button">
-          Documents
-        </button>
-
-        <button class="nav-item" type="button">
-          Settings
-        </button>
+      <nav class="navigation" aria-label="Primary navigation">
+        <button class="nav-item active" type="button" data-view="chat">Chat</button>
+        <button class="nav-item" type="button" data-view="documents">Documents</button>
+        <button class="nav-item" type="button" data-view="settings">Settings</button>
       </nav>
 
-      <div class="document-section">
+      <section class="document-section" aria-labelledby="documents-title">
         <div class="section-heading">
-          <h2>Documents</h2>
-          <button id="upload-button" type="button" aria-label="Upload document">
-            +
-          </button>
+          <h2 id="documents-title">Documents</h2>
+          <button id="upload-button" type="button" aria-label="Upload documents">+</button>
         </div>
 
-        <input
-          id="file-input"
-          type="file"
-          accept=".pdf,.txt,.doc,.docx"
-          hidden
-        >
-
-        <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Upload documents by dragging and dropping">
+        <input id="file-input" type="file" accept=".pdf,.txt,.doc,.docx" multiple hidden>
+        <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Upload documents by clicking or dropping files">
           <p class="drop-zone-title">Drag &amp; drop files</p>
-          <p class="drop-zone-subtitle">or click to browse</p>
+          <p class="drop-zone-subtitle">PDF, TXT, DOC or DOCX · max 10 MB</p>
         </div>
 
-        <div id="document-list" class="document-list">
-          <p class="empty-message">No documents uploaded.</p>
-        </div>
-      </div>
+        <div id="document-list" class="document-list" aria-live="polite"></div>
+      </section>
 
-      <div class="history-section">
-        <div class="section-heading">
-          <h2>Recent chats</h2>
-        </div>
+      <section class="history-section" aria-labelledby="history-title">
+        <div class="section-heading"><h2 id="history-title">Recent chats</h2></div>
+        <div id="history-list" class="history-list"></div>
+      </section>
 
-        <div class="history-list">
-          <button class="history-item active" type="button">
-            <span class="history-title">Q3 strategy summary</span>
-            <span class="history-meta">2 mins ago</span>
-          </button>
-          <button class="history-item" type="button">
-            <span class="history-title">Product requirements</span>
-            <span class="history-meta">Yesterday</span>
-          </button>
-          <button class="history-item" type="button">
-            <span class="history-title">Client onboarding notes</span>
-            <span class="history-meta">3 days ago</span>
-          </button>
-        </div>
-      </div>
+      <div class="sidebar-footer"><span class="status-dot"></span> Frontend prototype V1.1</div>
     </aside>
 
     <main class="workspace">
       <header class="workspace-header">
-        <div>
-          <p class="eyebrow">Document assistant</p>
-          <h2>Chat with your documents</h2>
-        </div>
-
-        <span class="status-badge">Prototype</span>
+        <div><p class="eyebrow">Document assistant</p><h2 id="view-title">Chat with your documents</h2></div>
+        <span class="status-badge">V1.1</span>
       </header>
 
-      <section id="chat-messages" class="chat-messages">
-        <article class="message assistant-message">
-          <div class="avatar">AI</div>
-
-          <div class="message-content-wrapper">
-            <div class="message-content">
-              <p>
-                Upload a document and ask me questions about its content.
-              </p>
-            </div>
-
-            <div class="citation-cards" aria-label="Source citations">
-              <div class="citation-card">
-                <span class="citation-label">Source 1</span>
-                <strong>Quarterly Report.pdf</strong>
-                <span class="citation-meta">Page 3 • Section: Revenue</span>
-              </div>
-            </div>
-          </div>
-        </article>
+      <section id="chat-view" class="view active-view">
+        <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+        <form id="chat-form" class="chat-form">
+          <label class="sr-only" for="message-input">Ask a question</label>
+          <textarea id="message-input" rows="1" maxlength="1000" placeholder="Ask a question about your documents..." required></textarea>
+          <button id="send-button" type="submit">Send</button>
+        </form>
       </section>
 
-      <form id="chat-form" class="chat-form">
-        <textarea
-          id="message-input"
-          rows="1"
-          placeholder="Ask a question about your documents..."
-          required
-        ></textarea>
+      <section id="documents-view" class="view panel-view" hidden>
+        <div class="panel-card"><p class="eyebrow">Library</p><h3>Your documents</h3><p>Upload and manage document metadata here. Real document reading arrives with the backend version.</p><div id="document-library" class="library-grid"></div></div>
+      </section>
 
-        <button type="submit">Send</button>
-      </form>
+      <section id="settings-view" class="view panel-view" hidden>
+        <div class="panel-card"><p class="eyebrow">Preferences</p><h3>Prototype settings</h3><label class="setting-row"><span><strong>Remember this session</strong><small>Save document metadata and chat messages in this browser.</small></span><input id="persistence-toggle" type="checkbox" checked></label><button id="clear-data-button" class="danger-button" type="button">Clear local data</button></div>
+      </section>
     </main>
   </div>
 
+  <div id="toast-region" class="toast-region" aria-live="assertive" aria-atomic="true"></div>
   <script src="script.js"></script>
 </body>
 </html>
