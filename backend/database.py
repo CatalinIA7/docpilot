@@ -1,17 +1,13 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from config import DATABASE_URL
 
-DATABASE_URL = "sqlite:///./docpilot.db"
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-Base = declarative_base()
-
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
-
+class Base(DeclarativeBase):
+    pass
 
 def get_db():
     db = SessionLocal()

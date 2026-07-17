@@ -1,88 +1,49 @@
-import os
 from datetime import datetime, timedelta, timezone
-from typing import Any
-
-from argon2 import PasswordHasher
-from fastapi import HTTPException
-from jose import JWTError, jwt
+import jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt import InvalidTokenError
+from pwdlib import PasswordHash
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from database import SessionLocal
+from config import ACCESS_TOKEN_EXPIRE_MINUTES, JWT_ALGORITHM, JWT_SECRET_KEY
+from database import get_db
 from models import User
-from schemas import UserRegister
 
-
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-key")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-ph = PasswordHasher(time_cost=3, memory_cost=65536, hash_len=32, parallelism=4, salt_len=16)
-
-
-def get_db_session() -> Session:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+password_hash = PasswordHash.recommended()
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def hash_password(password: str) -> str:
-    return ph.hash(password)
+    return password_hash.hash(password)
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return ph.verify(hashed_password, plain_password)
+def verify_password(password: str, stored_hash: str) -> bool:
+    return password_hash.verify(password, stored_hash)
 
 
-def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
-    if expires_delta is None:
-        expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    expire = datetime.now(timezone.utc) + expires_delta
-    payload = {"sub": subject, "exp": expire}
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+def create_access_token(user_id: int) -> str:
+    expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    return jwt.encode({"sub": str(user_id), "exp": expires}, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict[str, Any]:
-    return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-
-
-def get_current_user_from_token(db: Session, token: str) -> User | None:
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    unauthorized = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing authentication token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    if credentials is None:
+        raise unauthorized
     try:
-        payload = decode_access_token(token)
-        email = payload.get("sub")
-    except JWTError:
-        return None
-
-    if not email:
-        return None
-
-    return get_user_by_email(db, email)
-
-
-def get_current_user_dependency(authorization: str | None = None, db: Session | None = None) -> User:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid token")
-
-    token = authorization.removeprefix("Bearer ").strip()
-    if db is None:
-        db = SessionLocal()
-
-    user = get_current_user_from_token(db, token)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
+        payload = jwt.decode(credentials.credentials, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        user_id = int(payload.get("sub", ""))
+    except (InvalidTokenError, ValueError, TypeError):
+        raise unauthorized
+    user = db.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        raise unauthorized
     return user
-
-
-def create_user(db: Session, payload: UserRegister) -> User:
-    user = User(email=str(payload.email), password_hash=hash_password(payload.password))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-def get_user_by_email(db: Session, email: str) -> User | None:
-    return db.query(User).filter(User.email == email).first()

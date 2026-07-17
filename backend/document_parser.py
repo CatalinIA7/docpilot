@@ -1,63 +1,28 @@
 from pathlib import Path
-
-from docx import Document
+from docx import Document as DocxDocument
 from pypdf import PdfReader
 
 
-def extract_docx_text(file_path: Path) -> dict:
-    document = Document(file_path)
-
-    paragraphs = []
-
-    for paragraph in document.paragraphs:
-        cleaned_text = paragraph.text.strip()
-
-        if cleaned_text:
-            paragraphs.append(cleaned_text)
-
-    extracted_text = "\n".join(paragraphs)
-    words = extracted_text.split()
-
+def _result(text: str, paragraph_count: int) -> dict:
+    cleaned = "\n".join(line.strip() for line in text.splitlines() if line.strip())
     return {
-        "text": extracted_text,
-        "preview": extracted_text[:500],
-        "word_count": len(words),
-        "character_count": len(extracted_text),
-        "paragraph_count": len(paragraphs),
+        "text": cleaned,
+        "preview": cleaned[:500],
+        "word_count": len(cleaned.split()),
+        "character_count": len(cleaned),
+        "paragraph_count": paragraph_count,
     }
 
 
-def extract_pdf_text(file_path: Path) -> dict:
-    reader = PdfReader(str(file_path))
-    pages = reader.pages
-
-    paragraphs = []
-    for page in pages:
-        text = page.extract_text() or ""
-        cleaned_text = text.strip()
-        if cleaned_text:
-            paragraphs.append(cleaned_text)
-
-    extracted_text = "\n".join(paragraphs)
-    words = extracted_text.split()
-
-    return {
-        "text": extracted_text,
-        "preview": extracted_text[:500],
-        "word_count": len(words),
-        "character_count": len(extracted_text),
-        "paragraph_count": len(paragraphs),
-        "page_count": len(pages),
-    }
-
-
-def extract_document_text(file_path: Path) -> dict:
-    extension = file_path.suffix.lower()
-
-    if extension == ".docx":
-        return extract_docx_text(file_path)
-
-    if extension == ".pdf":
-        return extract_pdf_text(file_path)
-
-    raise ValueError(f"Unsupported file type: {extension}")
+def extract_document_text(path: Path) -> dict:
+    suffix = path.suffix.lower()
+    if suffix == ".docx":
+        document = DocxDocument(path)
+        paragraphs = [p.text.strip() for p in document.paragraphs if p.text.strip()]
+        return _result("\n".join(paragraphs), len(paragraphs))
+    if suffix == ".pdf":
+        reader = PdfReader(str(path))
+        pages = [(page.extract_text() or "").strip() for page in reader.pages]
+        non_empty = [page for page in pages if page]
+        return _result("\n".join(non_empty), len(non_empty))
+    raise ValueError("Unsupported file type")

@@ -1,98 +1,42 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="DocPilot is an AI document workspace prototype for uploading files and asking sourced questions.">
-  <title>DocPilot V1.1</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DocPilot</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-logo" aria-hidden="true">D</div>
-        <div><h1>DocPilot</h1><p>AI document workspace</p></div>
-      </div>
+  <main class="shell">
+    <section id="auth-view" class="auth-card">
+      <div class="brand-mark">D</div>
+      <h1>DocPilot</h1>
+      <p>Secure document workspace</p>
+      <div class="tabs"><button id="login-tab" class="active">Log in</button><button id="register-tab">Create account</button></div>
+      <form id="auth-form">
+        <label>Email<input id="email" type="email" required autocomplete="email"></label>
+        <label>Password<input id="password" type="password" required minlength="8" autocomplete="current-password"></label>
+        <button id="auth-submit" type="submit">Log in</button>
+      </form>
+      <p id="auth-error" class="error" role="alert"></p>
+    </section>
 
-      <button id="new-chat-button" class="new-chat-button" type="button">+ New conversation</button>
-
-      <nav class="navigation" aria-label="Primary navigation">
-        <button class="nav-item active" type="button" data-view="chat">Chat</button>
-        <button class="nav-item" type="button" data-view="documents">Documents</button>
-        <button class="nav-item" type="button" data-view="settings">Settings</button>
-      </nav>
-
-      <section class="document-section" aria-labelledby="documents-title">
-        <div class="section-heading">
-          <h2 id="documents-title">Documents</h2>
-          <button id="upload-button" type="button" aria-label="Upload documents">+</button>
-        </div>
-
-        <input id="file-input" type="file" accept=".pdf,.docx" multiple hidden>
-        <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Upload documents by clicking or dropping files">
-          <p class="drop-zone-title">Drag &amp; drop files</p>
-          <p class="drop-zone-subtitle">PDF, TXT, DOC or DOCX · max 10 MB</p>
-        </div>
-
-        <div id="document-list" class="document-list" aria-live="polite"></div>
+    <section id="app-view" class="app hidden">
+      <aside class="sidebar">
+        <div class="brand"><div class="brand-mark">D</div><div><strong>DocPilot</strong><small>Document workspace</small></div></div>
+        <button id="upload-button" class="primary">+ Upload document</button>
+        <input id="file-input" type="file" accept=".docx,.pdf" hidden>
+        <div id="drop-zone" class="drop-zone" tabindex="0"><strong>Drop DOCX or PDF</strong><span>Maximum 10 MB</span></div>
+        <div class="account"><span id="user-email"></span><button id="logout-button">Log out</button></div>
+      </aside>
+      <section class="workspace">
+        <header><div><span class="eyebrow">Library</span><h1>Your documents</h1></div><span id="document-count" class="badge">0 documents</span></header>
+        <div id="notice" class="notice hidden"></div>
+        <div id="document-list" class="document-grid"></div>
+        <div id="empty-state" class="empty-state"><h2>No documents yet</h2><p>Upload a DOCX or PDF to extract and store its text.</p></div>
       </section>
-
-      <section class="history-section" aria-labelledby="history-title">
-        <div class="section-heading"><h2 id="history-title">Recent chats</h2></div>
-        <div id="history-list" class="history-list"></div>
-      </section>
-
-      <div class="sidebar-footer"><span class="status-dot"></span> Frontend prototype V1.1</div>
-    </aside>
-
-    <main class="workspace">
-      <header class="workspace-header">
-        <div><p class="eyebrow">Document assistant</p><h2 id="view-title">Chat with your documents</h2></div>
-        <span class="status-badge">V1.1</span>
-      </header>
-
-      <section id="chat-view" class="view active-view">
-        <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
-        <form id="chat-form" class="chat-form">
-          <label class="sr-only" for="message-input">Ask a question</label>
-          <textarea id="message-input" rows="1" maxlength="1000" placeholder="Ask a question about your documents..." required></textarea>
-          <button id="send-button" type="submit">Send</button>
-        </form>
-      </section>
-
-      <section id="documents-view" class="view panel-view" hidden>
-        <div class="panel-card"><p class="eyebrow">Library</p><h3>Your documents</h3><p>Upload and manage document metadata here. Real document reading arrives with the backend version.</p><div id="document-library" class="library-grid"></div></div>
-      </section>
-
-      <section id="settings-view" class="view panel-view" hidden>
-        <div class="panel-card">
-          <p class="eyebrow">Preferences</p>
-          <h3>Prototype settings</h3>
-          <label class="setting-row"><span><strong>Remember this session</strong><small>Save document metadata and chat messages in this browser.</small></span><input id="persistence-toggle" type="checkbox" checked></label>
-          <button id="clear-data-button" class="danger-button" type="button">Clear local data</button>
-          <div class="auth-card">
-            <p class="eyebrow">Account</p>
-            <h3>Sign in to use the backend</h3>
-            <form id="auth-form" class="auth-form">
-              <label class="auth-field" for="auth-email">Email</label>
-              <input id="auth-email" type="email" autocomplete="email" required>
-              <label class="auth-field" for="auth-password">Password</label>
-              <input id="auth-password" type="password" autocomplete="current-password" required>
-              <div class="auth-actions">
-                <button id="login-button" class="primary-button" type="button">Log in</button>
-                <button id="register-button" class="secondary-button" type="button">Register</button>
-              </div>
-            </form>
-            <div id="auth-status" class="auth-status">Not signed in.</div>
-            <button id="logout-button" class="danger-button" type="button">Logout</button>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <div id="toast-region" class="toast-region" aria-live="assertive" aria-atomic="true"></div>
+    </section>
+  </main>
   <script src="script.js"></script>
 </body>
 </html>
