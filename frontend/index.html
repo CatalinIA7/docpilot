@@ -29,7 +29,7 @@
           <button id="upload-button" type="button" aria-label="Upload documents">+</button>
         </div>
 
-        <input id="file-input" type="file" accept=".pdf,.txt,.doc,.docx" multiple hidden>
+        <input id="file-input" type="file" accept=".pdf,.docx" multiple hidden>
         <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Upload documents by clicking or dropping files">
           <p class="drop-zone-title">Drag &amp; drop files</p>
           <p class="drop-zone-subtitle">PDF, TXT, DOC or DOCX · max 10 MB</p>
@@ -66,7 +66,28 @@
       </section>
 
       <section id="settings-view" class="view panel-view" hidden>
-        <div class="panel-card"><p class="eyebrow">Preferences</p><h3>Prototype settings</h3><label class="setting-row"><span><strong>Remember this session</strong><small>Save document metadata and chat messages in this browser.</small></span><input id="persistence-toggle" type="checkbox" checked></label><button id="clear-data-button" class="danger-button" type="button">Clear local data</button></div>
+        <div class="panel-card">
+          <p class="eyebrow">Preferences</p>
+          <h3>Prototype settings</h3>
+          <label class="setting-row"><span><strong>Remember this session</strong><small>Save document metadata and chat messages in this browser.</small></span><input id="persistence-toggle" type="checkbox" checked></label>
+          <button id="clear-data-button" class="danger-button" type="button">Clear local data</button>
+          <div class="auth-card">
+            <p class="eyebrow">Account</p>
+            <h3>Sign in to use the backend</h3>
+            <form id="auth-form" class="auth-form">
+              <label class="auth-field" for="auth-email">Email</label>
+              <input id="auth-email" type="email" autocomplete="email" required>
+              <label class="auth-field" for="auth-password">Password</label>
+              <input id="auth-password" type="password" autocomplete="current-password" required>
+              <div class="auth-actions">
+                <button id="login-button" class="primary-button" type="button">Log in</button>
+                <button id="register-button" class="secondary-button" type="button">Register</button>
+              </div>
+            </form>
+            <div id="auth-status" class="auth-status">Not signed in.</div>
+            <button id="logout-button" class="danger-button" type="button">Logout</button>
+          </div>
+        </div>
       </section>
     </main>
   </div>

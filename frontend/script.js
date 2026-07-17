@@ -1,8 +1,9 @@
 "use strict";
 
 const STORAGE_KEY = "docpilot-v1.1-state";
+const API_BASE_URL = "http://127.0.0.1:8000";
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = new Set(["pdf", "txt", "doc", "docx"]);
+const ALLOWED_EXTENSIONS = new Set(["pdf", "docx"]);
 
 const elements = {
   uploadButton: document.querySelector("#upload-button"),
@@ -21,6 +22,13 @@ const elements = {
   viewTitle: document.querySelector("#view-title"),
   persistenceToggle: document.querySelector("#persistence-toggle"),
   clearDataButton: document.querySelector("#clear-data-button"),
+  authForm: document.querySelector("#auth-form"),
+  authEmail: document.querySelector("#auth-email"),
+  authPassword: document.querySelector("#auth-password"),
+  loginButton: document.querySelector("#login-button"),
+  registerButton: document.querySelector("#register-button"),
+  logoutButton: document.querySelector("#logout-button"),
+  authStatus: document.querySelector("#auth-status"),
   toastRegion: document.querySelector("#toast-region")
 };
 
@@ -32,6 +40,7 @@ init();
 function init() {
   bindEvents();
   renderAll();
+  void restoreSession();
 }
 
 function defaultState() {
@@ -42,10 +51,15 @@ function defaultState() {
       {
         id: crypto.randomUUID(),
         sender: "assistant",
-        text: "Upload a document and ask me questions about its content. This frontend prototype validates files and simulates sourced answers."
+        text: "Upload a document and ask me questions about its content. Sign in first to use the backend chat experience."
       }
     ],
-    history: []
+    history: [],
+    auth: {
+      token: null,
+      user: null,
+      status: "Not signed in."
+    }
   };
 }
 
@@ -78,7 +92,7 @@ function bindEvents() {
     }
   });
   elements.fileInput.addEventListener("change", () => {
-    handleFiles(elements.fileInput.files);
+    void handleFiles(elements.fileInput.files);
     elements.fileInput.value = "";
   });
   ["dragenter", "dragover"].forEach(type => elements.dropZone.addEventListener(type, event => {
@@ -112,47 +126,177 @@ function bindEvents() {
     showToast(state.persistence ? "Local session saving enabled." : "Local session saving disabled.", "success");
   });
   elements.clearDataButton.addEventListener("click", clearLocalData);
+  elements.authForm.addEventListener("submit", event => {
+    event.preventDefault();
+    void handleAuthSubmit("login");
+  });
+  elements.loginButton.addEventListener("click", () => void handleAuthSubmit("login"));
+  elements.registerButton.addEventListener("click", () => void handleAuthSubmit("register"));
+  elements.logoutButton.addEventListener("click", handleLogout);
+}
+
+async function handleAuthSubmit(mode) {
+  const email = elements.authEmail.value.trim();
+  const password = elements.authPassword.value;
+
+  if (!email || !password) {
+    showToast("Please enter an email and password.", "error");
+    return;
+  }
+
+  try {
+    const payload = await authenticateUser(mode, email, password);
+    state.auth.token = payload.access_token;
+    const user = await fetchCurrentUser(payload.access_token);
+    state.auth.user = user;
+    state.auth.status = `Signed in as ${user.email}`;
+    saveState();
+    renderAuthStatus();
+    showToast(mode === "register" ? "Account created and signed in." : "Signed in successfully.", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+async function authenticateUser(mode, email, password) {
+  if (mode === "register") {
+    const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+
+    const registerPayload = await registerResponse.json().catch(() => null);
+    if (!registerResponse.ok) {
+      throw new Error(registerPayload?.detail || "Registration failed.");
+    }
+  }
+
+  const loginResponse = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+
+  const loginPayload = await loginResponse.json().catch(() => null);
+  if (!loginResponse.ok) {
+    throw new Error(loginPayload?.detail || "Login failed.");
+  }
+
+  return loginPayload;
+}
+
+async function fetchCurrentUser(token) {
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.detail || "Unable to verify the current session.");
+  }
+
+  return payload;
+}
+
+async function restoreSession() {
+  if (!state.auth?.token) {
+    renderAuthStatus();
+    return;
+  }
+
+  try {
+    const user = await fetchCurrentUser(state.auth.token);
+    state.auth.user = user;
+    state.auth.status = `Signed in as ${user.email}`;
+    renderAuthStatus();
+  } catch {
+    state.auth.token = null;
+    state.auth.user = null;
+    state.auth.status = "Not signed in.";
+    saveState();
+    renderAuthStatus();
+  }
+}
+
+function handleLogout() {
+  state.auth = { token: null, user: null, status: "Not signed in." };
+  saveState();
+  renderAuthStatus();
+  showToast("Signed out.", "success");
 }
 
 function openFilePicker() {
   elements.fileInput.click();
 }
 
-function handleFiles(fileList) {
+async function handleFiles(fileList) {
   const files = Array.from(fileList);
   if (!files.length) return;
 
   let added = 0;
-  files.forEach(file => {
+
+  for (const file of files) {
     const extension = getExtension(file.name);
     if (!ALLOWED_EXTENSIONS.has(extension)) {
       showToast(`${file.name}: unsupported file type.`, "error");
-      return;
+      continue;
     }
     if (file.size > MAX_FILE_SIZE) {
       showToast(`${file.name}: file exceeds the 10 MB limit.`, "error");
-      return;
+      continue;
     }
     const duplicate = state.documents.some(doc => doc.name.toLowerCase() === file.name.toLowerCase() && doc.size === file.size);
     if (duplicate) {
       showToast(`${file.name}: already added.`, "error");
-      return;
+      continue;
     }
-    state.documents.push({
-      id: crypto.randomUUID(),
-      name: file.name,
-      size: file.size,
-      extension,
-      addedAt: new Date().toISOString()
-    });
-    added += 1;
-  });
+
+    try {
+      const uploadedDocument = await uploadDocumentToApi(file);
+      state.documents.push({
+        id: uploadedDocument.id || crypto.randomUUID(),
+        name: uploadedDocument.filename || file.name,
+        size: uploadedDocument.size || file.size,
+        extension: uploadedDocument.file_type || extension,
+        addedAt: new Date().toISOString(),
+        remoteId: uploadedDocument.id || null,
+        status: uploadedDocument.status || "processed"
+      });
+      added += 1;
+      showToast(`${file.name}: uploaded successfully.`, "success");
+    } catch (error) {
+      showToast(`${file.name}: ${error.message}`, "error");
+    }
+  }
 
   if (added) {
     saveState();
     renderDocuments();
-    showToast(`${added} document${added === 1 ? "" : "s"} added.`, "success");
   }
+}
+
+async function uploadDocumentToApi(file) {
+  if (!state.auth?.token) {
+    throw new Error("Please sign in before uploading documents.");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/documents`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${state.auth.token}` },
+    body: formData
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(payload?.detail || "The upload could not be completed.");
+  }
+
+  return payload;
 }
 
 function handleDeleteClick(event) {
@@ -178,27 +322,45 @@ async function handleMessageSubmit(event) {
   isReplying = true;
   elements.sendButton.disabled = true;
   const typingId = showTypingIndicator();
-  await delay(650);
-  removeMessageElement(typingId);
 
-  const response = buildPrototypeResponse(text);
-  addMessage(response);
-  isReplying = false;
-  elements.sendButton.disabled = false;
-  elements.messageInput.focus();
+  try {
+    const response = await askBackend(text);
+    removeMessageElement(typingId);
+    addMessage({
+      sender: "assistant",
+      text: response.answer,
+      citations: response.citations
+    });
+  } catch (error) {
+    removeMessageElement(typingId);
+    addMessage({ sender: "assistant", text: `I couldn’t answer that yet. ${error.message}` });
+  } finally {
+    isReplying = false;
+    elements.sendButton.disabled = false;
+    elements.messageInput.focus();
+  }
 }
 
-function buildPrototypeResponse(question) {
-  if (!state.documents.length) {
-    return { sender: "assistant", text: "Please upload a supported document first. I can currently demonstrate the interface, while real document reading will arrive with the backend." };
+async function askBackend(question) {
+  if (!state.auth?.token) {
+    throw new Error("Please sign in before asking questions.");
   }
 
-  const firstDocument = state.documents[0];
-  return {
-    sender: "assistant",
-    text: `I received your question: “${question}”\n\nThis is a simulated V1.1 answer. The next backend version will extract the document text, retrieve matching passages, and generate a grounded response.`,
-    citations: [{ documentName: firstDocument.name, meta: "Prototype source · Document metadata only" }]
-  };
+  const response = await fetch(`${API_BASE_URL}/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${state.auth.token}`
+    },
+    body: JSON.stringify({ question })
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.detail || "The chat request failed.");
+  }
+
+  return payload;
 }
 
 function addMessage(message) {
@@ -305,6 +467,13 @@ function renderAll() {
   renderDocuments();
   renderMessages();
   renderHistory();
+  renderAuthStatus();
+}
+
+function renderAuthStatus() {
+  const currentUser = state.auth?.user?.email || state.auth?.status || "Not signed in.";
+  elements.authStatus.textContent = state.auth?.token ? `Signed in as ${currentUser}` : state.auth?.status || "Not signed in.";
+  elements.logoutButton.disabled = !state.auth?.token;
 }
 
 function renderDocuments() {
