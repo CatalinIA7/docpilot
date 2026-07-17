@@ -14,10 +14,10 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 def _build_preview(document: Document, query: str) -> str:
+    query_lower = query.lower()
     if document.text:
-        lowered_query = query.lower()
         lowered_text = document.text.lower()
-        match_index = lowered_text.find(lowered_query)
+        match_index = lowered_text.find(query_lower)
         if match_index != -1:
             start = max(0, match_index - 60)
             end = min(len(document.text), match_index + len(query) + 60)
@@ -26,10 +26,17 @@ def _build_preview(document: Document, query: str) -> str:
                 preview = "…" + preview
             if end < len(document.text):
                 preview = preview + "…"
+            if len(preview) > 180:
+                preview = preview[:177].rstrip() + "..."
             return preview
-    if query.lower() in document.filename.lower():
-        return f"Filename match: {document.filename}"
-    return document.preview or ""
+
+    if query_lower in document.filename.lower():
+        preview = document.text[:180].strip() if document.text else (document.preview or "")
+        if len(preview) > 180:
+            preview = preview[:177].rstrip() + "..."
+        return preview
+
+    return ""
 
 
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -115,7 +122,9 @@ def search_documents(
         DocumentSearchResponse(
             id=document.id,
             filename=document.filename,
+            file_type=document.file_type,
             created_at=document.created_at,
+            word_count=document.word_count,
             preview=_build_preview(document, query),
         )
         for document in documents
