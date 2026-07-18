@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DocPilot</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    .password-row{display:flex;gap:8px;align-items:center}
+    .password-toggle{padding:8px 10px;border-radius:8px;border:1px solid #d1d5db;background:transparent;color:#374151}
+  </style>
 </head>
 <body>
   <main class="shell">
@@ -13,9 +17,14 @@
       <h1>DocPilot</h1>
       <p>Secure document workspace</p>
       <div class="tabs"><button id="login-tab" class="active">Log in</button><button id="register-tab">Create account</button></div>
-      <form id="auth-form">
+        <form id="auth-form">
         <label>Email<input id="email" type="email" required autocomplete="email"></label>
-        <label>Password<input id="password" type="password" required minlength="8" autocomplete="current-password"></label>
+        <label>Password
+          <div class="password-row">
+            <input id="password" type="password" required minlength="8" autocomplete="current-password">
+            <button id="password-toggle" class="secondary password-toggle" type="button" aria-label="Show password">Show</button>
+          </div>
+        </label>
         <button id="auth-submit" type="submit">Log in</button>
       </form>
       <p id="auth-error" class="error" role="alert"></p>
@@ -38,6 +47,28 @@
         </div>
         <p id="search-error" class="error search-error" role="alert"></p>
         <div id="notice" class="notice hidden"></div>
+        <div id="list-loading" class="detail-state hidden">Loading documents…</div>
+        <div id="document-detail-view" class="document-detail-view hidden" aria-live="polite">
+          <div id="detail-loading" class="detail-state">Loading document…</div>
+          <div id="detail-error" class="detail-error hidden" role="alert"></div>
+            <div id="detail-content" class="detail-content hidden">
+            <button id="detail-back-button" class="secondary detail-back-button" type="button">← Back</button>
+            <button id="detail-delete-button" class="danger detail-delete-button" type="button">Delete document</button>
+            <header class="detail-header">
+              <h2 id="detail-filename"></h2>
+              <p id="detail-meta" class="detail-meta"></p>
+            </header>
+            <div class="detail-summary">
+              <div class="detail-field"><span class="detail-label">File type</span><div id="detail-file-type"></div></div>
+              <div class="detail-field"><span class="detail-label">Upload date</span><div id="detail-upload-date"></div></div>
+              <div class="detail-field"><span class="detail-label">Word count</span><div id="detail-word-count"></div></div>
+            </div>
+            <section class="detail-section">
+              <h3>Extracted text</h3>
+              <pre id="detail-text"></pre>
+            </section>
+          </div>
+        </div>
         <div id="document-list" class="document-grid"></div>
         <div id="empty-state" class="empty-state"><h2>No documents yet</h2><p>Upload a DOCX or PDF to extract and store its text.</p></div>
       </section>
