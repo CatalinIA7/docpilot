@@ -729,6 +729,6 @@ The evaluation framework is **independent** from production observability:
 
 ## See Also
 
-- [Retrieval Service Documentation](RETRIEVAL.md)
-- [Embedding Service Documentation](EMBEDDINGS.md)
-- [Production Observability Documentation](OBSERVABILITY.md)
+- [Retrieval service implementation](retrieval_service.py)
+- [Embedding service implementation](embedding_service.py)
+- [Production monitoring runbook](../docs/monitoring.md)

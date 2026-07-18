@@ -617,19 +617,20 @@ CREATE TABLE messages (
 );
 ```
 
-## Files Modified
+## Key Files
 
 - `backend/models.py`: Added Conversation, Message models
 - `backend/config.py`: Added CONVERSATION_MAX_MESSAGES
 - `backend/schemas.py`: Added conversation request/response schemas
-- `backend/conversation_service.py`: NEW - Business logic service
-- `backend/routers/conversations.py`: NEW - REST endpoints
-- `backend/routers/chat.py`: Updated to support conversation_id
-- `backend/main.py`: Registered conversation router
-- `backend/tests/test_conversations.py`: NEW - 17 comprehensive tests
+- `backend/conversation_service.py`: Business logic service
+- `backend/routers/conversations.py`: REST endpoints
+- `backend/routers/chat.py`: Retrieval-backed chat with optional `conversation_id`
+- `backend/main.py`: Conversation router registration
+- `backend/tests/test_conversations.py`: Focused conversation tests
 
 ## Summary
 
 Conversation history provides persistent, user-friendly continuity for document chat while preserving the core RAG pipeline. Users can create, continue, retrieve, and delete conversations with full message and citation persistence, automatic timestamp tracking, and flexible title management.
 
-Implementation is backward-compatible (single-turn chat still works), ownership-verified, and thoroughly tested with 183 total tests passing (166 existing + 17 new).
+Implementation remains backward-compatible (single-turn chat still works),
+ownership-verified, and covered by the full backend test suite.

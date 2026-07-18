@@ -329,36 +329,16 @@ Options for scoring answer quality (0.0-1.0):
 3. **Keyword Matching**: Check if expected key terms appear in answer
 4. **Hybrid**: Combination of above
 
-### Running Scheduled Evaluations
+### Scheduled Evaluations
 
-For continuous monitoring:
+DocPilot does not ship an application scheduler. An external trusted job can call
+the existing CLI or authenticated API if recurring evaluation becomes necessary;
+provider cost and benchmark data should be reviewed before enabling it.
 
-```python
-# schedule_eval.py
-from apscheduler.schedulers.background import BackgroundScheduler
+## Operating Workflow
 
-scheduler = BackgroundScheduler()
-
-# Run evaluation every Sunday at 10 AM
-scheduler.add_job(
-    run_evaluation,
-    'cron',
-    day_of_week='sun',
-    hour=10,
-    args=[doc_id, user_id, 'Weekly Baseline'],
-    id='weekly_eval'
-)
-
-scheduler.start()
-```
-
-## Next Steps
-
-1. **Populate benchmark dataset** with 10-25 representative questions
-2. **Run baseline evaluation** against current full-document approach
-3. **Implement RAG** (chunking + retrieval)
-4. **Run RAG evaluation** with same questions
-5. **Compare results** to measure improvements
-6. **Iterate** based on metrics
-
-This framework will help you make data-driven decisions about architectural changes!
+1. Populate a representative benchmark dataset.
+2. Run full-context and RAG evaluations against the same questions.
+3. Compare context reduction, latency, retrieval, and citation results.
+4. Investigate regressions before changing model or retrieval configuration.
+5. Keep provider-backed evaluation out of automated tests and unapproved accounts.

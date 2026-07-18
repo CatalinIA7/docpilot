@@ -199,15 +199,19 @@ The chunking module is designed to be independent and reusable:
 - ✅ No OpenAI dependencies
 - ✅ No retrieval logic mixed in
 - ✅ Pure Python dataclasses and functions
-- ✅ Easy to integrate later into chat endpoint, embedding pipeline, etc.
+- ✅ Integrated by the upload pipeline without coupling the chunker to HTTP or storage
 
-## Future Extensions
+## Current Integration
 
-The foundation is designed to support:
+The upload pipeline currently:
 
-1. **Embedding generation** (one chunk = one embedding later)
-2. **Vector storage** (chunks → embeddings → vector DB)
-3. **Semantic retrieval** (similarity search over chunks)
+1. generates one embedding per deterministic chunk;
+2. persists chunks, metadata, and embedding vectors in PostgreSQL;
+3. retrieves semantically similar chunks for every chat question;
+4. rebuilds citations from the retrieved chunk metadata.
+
+The module remains deliberately independent so storage or retrieval can evolve
+without changing its deterministic output.
 4. **RAG integration** (retrieve chunks, augment prompt)
 5. **Token-aware chunking** (track token count instead of characters)
 6. **Hierarchical chunking** (sentences → paragraphs → sections)
