@@ -1,11 +1,13 @@
 """
 Evaluation endpoints for running benchmarks and viewing results.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 from database import get_db
 from auth import get_current_user
-from models import User, BenchmarkQuestion, EvaluationRun, EvaluationResult, Document
+from models import User, BenchmarkQuestion, EvaluationRun, EvaluationResult, Document, DocumentChunk, RAGEvaluationComparison
 from schemas import (
     BenchmarkQuestionCreate,
     BenchmarkQuestionResponse,
@@ -13,8 +15,15 @@ from schemas import (
     EvaluationRunResponse,
     EvaluationRunDetailResponse,
     EvaluationComparisonResponse,
+    RAGEvaluationComparisonSchema,
+    RAGEvaluationComparisonRequest,
+    RAGEvaluationComparisonResponse,
 )
 from evaluator import Evaluator
+from evaluation_comparison_service import EvaluationRunner
+from config import EVAL_MAX_LATENCY_MS, EVAL_MIN_CONTEXT_REDUCTION, EVAL_MIN_CITATION_PRESERVATION, EVAL_PERSIST_RESULTS
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/evaluation", tags=["evaluation"])
 
@@ -220,3 +229,143 @@ async def delete_evaluation_run(
     db.delete(run)
     db.commit()
     return {"status": "deleted"}
+
+
+# ============================================================================
+# RAG Evaluation Comparison Endpoints
+# ============================================================================
+
+
+@router.post(
+    "/compare/baseline-vs-rag/{document_id}",
+    response_model=RAGEvaluationComparisonSchema,
+    status_code=status.HTTP_200_OK,
+)
+async def run_rag_evaluation_comparison(
+    document_id: str,
+    request: RAGEvaluationComparisonRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Run evaluation comparison between baseline and RAG strategies.
+
+    Compares full-document chat against retrieval-augmented chat to measure:
+    - Context reduction
+    - Latency improvements
+    - Citation preservation
+    - Retrieval quality
+
+    Results can optionally be persisted for regression tracking.
+    """
+    # Verify document ownership
+    document = db.scalar(
+        select(Document).where(
+            Document.id == document_id,
+            Document.user_id == current_user.id,
+        )
+    )
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Load chunks for the document
+    chunks = list(
+        db.scalars(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == document_id)
+            .order_by(DocumentChunk.chunk_index)
+        )
+    )
+
+    if not chunks:
+        raise HTTPException(
+            status_code=400,
+            detail="Document has no extractable content",
+        )
+
+    # Run evaluation comparison
+    runner = EvaluationRunner(
+        max_latency_ms=EVAL_MAX_LATENCY_MS,
+        min_context_reduction_percent=EVAL_MIN_CONTEXT_REDUCTION,
+        min_citation_preservation=EVAL_MIN_CITATION_PRESERVATION,
+    )
+
+    try:
+        comparison = runner.run(
+            document=document,
+            question=request.question,
+            chunks=chunks,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation failed: {str(exc)}",
+        ) from exc
+
+    # Optionally persist the comparison
+    if request.store_result and EVAL_PERSIST_RESULTS:
+        try:
+            eval_record = RAGEvaluationComparison(
+                user_id=current_user.id,
+                document_id=document_id,
+                question=comparison.question,
+                baseline_success=comparison.baseline.success,
+                baseline_latency_ms=comparison.baseline.total_latency_ms,
+                baseline_prompt_chars=comparison.baseline.prompt_character_count,
+                baseline_response_chars=comparison.baseline.response_character_count,
+                baseline_citation_count=comparison.baseline.citation_count,
+                baseline_error=comparison.baseline.error,
+                rag_success=comparison.rag.success,
+                rag_latency_ms=comparison.rag.total_latency_ms,
+                rag_prompt_chars=comparison.rag.prompt_character_count,
+                rag_response_chars=comparison.rag.response_character_count,
+                rag_citation_count=comparison.rag.citation_count,
+                rag_retrieved_chunk_count=comparison.rag.retrieved_chunk_count,
+                rag_retrieved_chunk_ids=comparison.rag.retrieved_chunk_ids,
+                rag_retrieval_scores=comparison.rag.retrieval_scores,
+                rag_error=comparison.rag.error,
+                context_reduction_percent=comparison.comparison.context_reduction_percent,
+                latency_difference_ms=comparison.comparison.latency_difference_ms,
+                citation_difference=comparison.comparison.citation_difference,
+                avg_similarity_score=comparison.comparison.retrieved_chunk_avg_similarity,
+                comparison_status=comparison.comparison.status,
+                status_reason=comparison.comparison.status_reason,
+                ai_model=comparison.baseline.ai_model,
+            )
+            db.add(eval_record)
+            db.commit()
+        except Exception as exc:
+            logger.exception("Failed to persist evaluation comparison: %s", exc)
+            # Persistence failure is not fatal; return results anyway
+
+    return comparison
+
+
+@router.get(
+    "/comparison-results/{document_id}",
+    response_model=list[RAGEvaluationComparisonResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def list_comparison_results(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all RAG evaluation comparisons for a document."""
+    # Verify document ownership
+    document = db.scalar(
+        select(Document).where(
+            Document.id == document_id,
+            Document.user_id == current_user.id,
+        )
+    )
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Get comparisons
+    comparisons = db.query(RAGEvaluationComparison).filter(
+        RAGEvaluationComparison.document_id == document_id,
+        RAGEvaluationComparison.user_id == current_user.id,
+    ).order_by(RAGEvaluationComparison.created_at.desc()).all()
+
+    return comparisons

@@ -118,3 +118,48 @@ class EvaluationResult(Base):
 
     evaluation_run: Mapped[EvaluationRun] = relationship(back_populates="results")
     benchmark_question: Mapped[BenchmarkQuestion] = relationship(back_populates="evaluation_results")
+
+
+class RAGEvaluationComparison(Base):
+    """Persistent storage of RAG vs Baseline evaluation comparisons."""
+
+    __tablename__ = "rag_evaluation_comparisons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True, nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Baseline metrics
+    baseline_success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    baseline_latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    baseline_prompt_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    baseline_response_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    baseline_citation_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    baseline_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # RAG metrics
+    rag_success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    rag_latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    rag_prompt_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    rag_response_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    rag_citation_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    rag_retrieved_chunk_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    rag_retrieved_chunk_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=[])
+    rag_retrieval_scores: Mapped[list[float]] = mapped_column(JSON, nullable=False, default=[])
+    rag_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Comparison metrics
+    context_reduction_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    latency_difference_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    citation_difference: Mapped[int] = mapped_column(Integer, nullable=False)
+    avg_similarity_score: Mapped[float] = mapped_column(Float, nullable=False)
+    comparison_status: Mapped[str] = mapped_column(String(50), nullable=False)  # "PASS", "WARNING", "FAIL"
+    status_reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Metadata
+    ai_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    user: Mapped[User] = relationship()
+    document: Mapped[Document] = relationship()
