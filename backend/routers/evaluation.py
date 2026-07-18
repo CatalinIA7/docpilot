@@ -22,8 +22,9 @@ from schemas import (
 from evaluator import Evaluator
 from evaluation_comparison_service import EvaluationRunner
 from config import EVAL_MAX_LATENCY_MS, EVAL_MIN_CONTEXT_REDUCTION, EVAL_MIN_CITATION_PRESERVATION, EVAL_PERSIST_RESULTS
+from observability import log_event
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("docpilot.evaluation.routes")
 
 router = APIRouter(prefix="/evaluation", tags=["evaluation"])
 
@@ -335,7 +336,16 @@ async def run_rag_evaluation_comparison(
             db.add(eval_record)
             db.commit()
         except Exception as exc:
-            logger.exception("Failed to persist evaluation comparison: %s", exc)
+            log_event(
+                logger,
+                logging.ERROR,
+                "evaluation_persistence_failed",
+                "Evaluation comparison could not be persisted",
+                exc_info=True,
+                document_id=document_id,
+                user_id=current_user.id,
+                error_type=type(exc).__name__,
+            )
             # Persistence failure is not fatal; return results anyway
 
     return comparison

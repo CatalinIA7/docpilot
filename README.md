@@ -164,6 +164,22 @@ See [the Render deployment runbook](docs/deployment-render.md) for prerequisites
 first-deploy steps, environment variables, migration behavior, persistence,
 backup and rollback guidance, verification, costs, and known limitations.
 
+## Production Monitoring
+
+The backend emits one-line structured JSON application logs with request IDs,
+request duration, database timing, retrieval timing, OpenAI embedding/LLM timing,
+upload processing events, conversation persistence events, lifecycle events, and
+Alembic migration outcomes. Render collects container stdout/stderr without an
+additional monitoring stack.
+
+Every HTTP response includes `X-Request-ID`. Use that value to correlate a browser
+failure with backend, database, retrieval, and provider events. Log metadata does
+not include access tokens, passwords, prompts, document contents, filenames, SQL,
+or SQL parameters.
+
+See [the production monitoring runbook](docs/monitoring.md) for configuration,
+event names, example queries, diagnosis workflows, and current limitations.
+
 ## Stop
 
 ```bash

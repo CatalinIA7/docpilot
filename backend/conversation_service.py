@@ -9,6 +9,7 @@ Provides functions for:
 """
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
@@ -19,8 +20,9 @@ from sqlalchemy.orm import Session
 from config import CONVERSATION_MAX_MESSAGES
 from models import Conversation, Message, Document, User
 from schemas import Citation as SchemaCitation
+from observability import log_event
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("docpilot.conversations")
 
 
 def _generate_title_from_question(question: str, max_length: int = 50) -> str:
@@ -161,6 +163,7 @@ def add_user_message(
     Returns:
         Created Message object
     """
+    started_at = time.perf_counter()
     message = Message(
         id=str(uuid4()),
         conversation_id=conversation_id,
@@ -169,18 +172,41 @@ def add_user_message(
         citations=[],
     )
     
-    db.add(message)
-    db.commit()
-    db.refresh(message)
-    
-    # Update conversation's updated_at timestamp
-    conversation = db.scalar(
-        select(Conversation).where(Conversation.id == conversation_id)
-    )
-    if conversation:
-        conversation.updated_at = datetime.now(timezone.utc)
+    try:
+        db.add(message)
         db.commit()
-    
+        db.refresh(message)
+
+        # Update conversation's updated_at timestamp
+        conversation = db.scalar(
+            select(Conversation).where(Conversation.id == conversation_id)
+        )
+        if conversation:
+            conversation.updated_at = datetime.now(timezone.utc)
+            db.commit()
+    except Exception as exc:
+        db.rollback()
+        log_event(
+            logger,
+            logging.ERROR,
+            "conversation_persistence_failed",
+            "User conversation message could not be persisted",
+            conversation_id=conversation_id,
+            role="user",
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            error_type=type(exc).__name__,
+        )
+        raise
+
+    log_event(
+        logger,
+        logging.INFO,
+        "conversation_message_persisted",
+        "Conversation message persisted",
+        conversation_id=conversation_id,
+        role="user",
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+    )
     return message
 
 
@@ -201,6 +227,7 @@ def add_assistant_message(
     Returns:
         Created Message object
     """
+    started_at = time.perf_counter()
     # Convert citations to JSON-serializable format
     citations_data = [
         {
@@ -220,18 +247,42 @@ def add_assistant_message(
         citations=citations_data,
     )
     
-    db.add(message)
-    db.commit()
-    db.refresh(message)
-    
-    # Update conversation's updated_at timestamp
-    conversation = db.scalar(
-        select(Conversation).where(Conversation.id == conversation_id)
-    )
-    if conversation:
-        conversation.updated_at = datetime.now(timezone.utc)
+    try:
+        db.add(message)
         db.commit()
-    
+        db.refresh(message)
+
+        # Update conversation's updated_at timestamp
+        conversation = db.scalar(
+            select(Conversation).where(Conversation.id == conversation_id)
+        )
+        if conversation:
+            conversation.updated_at = datetime.now(timezone.utc)
+            db.commit()
+    except Exception as exc:
+        db.rollback()
+        log_event(
+            logger,
+            logging.ERROR,
+            "conversation_persistence_failed",
+            "Assistant conversation message could not be persisted",
+            conversation_id=conversation_id,
+            role="assistant",
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            error_type=type(exc).__name__,
+        )
+        raise
+
+    log_event(
+        logger,
+        logging.INFO,
+        "conversation_message_persisted",
+        "Conversation message persisted",
+        conversation_id=conversation_id,
+        role="assistant",
+        citation_count=len(citations_data),
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+    )
     return message
 
 

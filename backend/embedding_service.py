@@ -18,9 +18,13 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
+from observability import log_event
+
+
+logger = logging.getLogger("docpilot.embeddings")
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -182,6 +186,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     # Call OpenAI API with batch processing
     all_embeddings = []
     batch_count = 0
+    started_at = time.perf_counter()
 
     try:
         from openai import OpenAI, APIError, RateLimitError, AuthenticationError
@@ -229,29 +234,75 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
                     "Inconsistent vector dimensions in provider response."
                 )
 
-        logger.info(
-            "Successfully generated embeddings for %d texts in %d batch(es)",
-            len(normalized_texts),
-            batch_count,
+        log_event(
+            logger,
+            logging.INFO,
+            "embedding_request_completed",
+            "Embedding request completed",
+            provider="openai",
+            model=model,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            text_count=len(normalized_texts),
+            batch_count=batch_count,
+            vector_dimension=len(all_embeddings[0]) if all_embeddings else 0,
         )
 
         return all_embeddings
 
     except (RateLimitError, AuthenticationError) as exc:
-        logger.error("OpenAI API authentication or rate-limit error: %s", type(exc).__name__)
+        log_event(
+            logger,
+            logging.ERROR,
+            "embedding_request_failed",
+            "OpenAI embedding request failed",
+            provider="openai",
+            model=model,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            text_count=len(normalized_texts),
+            error_type=type(exc).__name__,
+        )
         raise EmbeddingProviderError(
             "The embedding service is temporarily unavailable. Please try again later."
         ) from exc
     except APIError as exc:
-        logger.error("OpenAI API error: %s", type(exc).__name__)
+        log_event(
+            logger,
+            logging.ERROR,
+            "embedding_request_failed",
+            "OpenAI embedding request failed",
+            provider="openai",
+            model=model,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            text_count=len(normalized_texts),
+            error_type=type(exc).__name__,
+        )
         raise EmbeddingProviderError(
             "The embedding service returned an error. Please try again later."
         ) from exc
     except EmbeddingResponseError:
-        # Re-raise our own validation errors
+        log_event(
+            logger,
+            logging.ERROR,
+            "embedding_response_invalid",
+            "Embedding provider returned an invalid response",
+            provider="openai",
+            model=model,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            text_count=len(normalized_texts),
+        )
         raise
     except Exception as exc:
-        logger.error("Unexpected error during embedding: %s", type(exc).__name__)
+        log_event(
+            logger,
+            logging.ERROR,
+            "embedding_request_failed",
+            "Unexpected embedding request failure",
+            provider="openai",
+            model=model,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            text_count=len(normalized_texts),
+            error_type=type(exc).__name__,
+        )
         raise EmbeddingProviderError(
             "An unexpected error occurred while generating embeddings."
         ) from exc

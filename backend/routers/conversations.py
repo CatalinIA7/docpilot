@@ -30,8 +30,9 @@ from schemas import (
     ConversationDetailResponse,
     MessageSchema,
 )
+from observability import log_event
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("docpilot.conversations.routes")
 
 router = APIRouter(tags=["conversations"])
 
@@ -94,7 +95,15 @@ def create_document_conversation(
             last_message_at=None,
         )
     except Exception as exc:
-        logger.error("Error creating conversation: %s", exc)
+        log_event(
+            logger,
+            logging.ERROR,
+            "conversation_creation_failed",
+            "Conversation could not be created",
+            document_id=document_id,
+            user_id=current_user.id,
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(
             status_code=500,
             detail="Failed to create conversation",

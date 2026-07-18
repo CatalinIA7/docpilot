@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import time
 from dataclasses import dataclass
 
 from embedding_service import (
@@ -28,8 +29,9 @@ from embedding_service import (
     EmbeddingResponseError,
 )
 from models import DocumentChunk
+from observability import log_event
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("docpilot.retrieval")
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -205,6 +207,8 @@ def retrieve_chunks(
     RetrievalResponseError
         If embedding response is malformed or validation fails.
     """
+    started_at = time.perf_counter()
+
     # Validate and normalize inputs
     if not question or not question.strip():
         raise RetrievalResponseError("Question must not be empty or whitespace-only")
@@ -227,14 +231,25 @@ def retrieve_chunks(
     candidate_count = len(embedded_chunks)
 
     if not embedded_chunks:
-        # No chunks have embeddings — return empty result
-        return RetrievalResult(
+        result = RetrievalResult(
             chunks=[],
             candidate_count=candidate_count,
             retrieved_count=0,
             top_k=top_k,
             min_score=min_score,
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "retrieval_completed",
+            "Semantic retrieval completed",
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            candidate_count=0,
+            retrieved_count=0,
+            top_k=top_k,
+            min_score=min_score,
+        )
+        return result
 
     # Generate question embedding
     try:
@@ -245,14 +260,41 @@ def retrieve_chunks(
             )
         question_embedding = embeddings[0]
     except EmbeddingConfigurationError as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "retrieval_failed",
+            "Semantic retrieval configuration failed",
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            candidate_count=candidate_count,
+            error_type=type(exc).__name__,
+        )
         raise RetrievalConfigurationError(
             f"Embedding service not configured: {exc}"
         ) from exc
     except EmbeddingProviderError as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "retrieval_failed",
+            "Semantic retrieval provider failed",
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            candidate_count=candidate_count,
+            error_type=type(exc).__name__,
+        )
         raise RetrievalProviderError(
             f"Embedding provider failed: {exc}"
         ) from exc
     except EmbeddingResponseError as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "retrieval_failed",
+            "Semantic retrieval response was invalid",
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            candidate_count=candidate_count,
+            error_type=type(exc).__name__,
+        )
         raise RetrievalResponseError(
             f"Invalid embedding response: {exc}"
         ) from exc
@@ -268,10 +310,13 @@ def retrieve_chunks(
             score = _cosine_similarity(question_embedding, chunk.embedding)
             scored_chunks.append((chunk, score))
         except RetrievalResponseError as exc:
-            logger.warning(
-                "Failed to score chunk %d: %s",
-                chunk.id,
-                exc,
+            log_event(
+                logger,
+                logging.WARNING,
+                "retrieval_chunk_skipped",
+                "Chunk embedding could not be scored",
+                chunk_id=chunk.id,
+                error_type=type(exc).__name__,
             )
             # Skip malformed embeddings
 
@@ -301,10 +346,23 @@ def retrieve_chunks(
         for i, (chunk, score) in enumerate(topk_chunks)
     ]
 
-    return RetrievalResult(
+    result = RetrievalResult(
         chunks=retrieved,
         candidate_count=candidate_count,
         retrieved_count=len(filtered_chunks),
         top_k=top_k,
         min_score=min_score,
     )
+    log_event(
+        logger,
+        logging.INFO,
+        "retrieval_completed",
+        "Semantic retrieval completed",
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+        candidate_count=candidate_count,
+        retrieved_count=len(retrieved),
+        qualifying_count=len(filtered_chunks),
+        top_k=top_k,
+        min_score=min_score,
+    )
+    return result

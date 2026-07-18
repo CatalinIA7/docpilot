@@ -61,3 +61,8 @@ EVAL_PERSIST_RESULTS = os.getenv("DOCPILOT_EVAL_PERSIST_RESULTS", "true").lower(
 
 # Conversation history configuration
 CONVERSATION_MAX_MESSAGES = int(os.getenv("DOCPILOT_CONVERSATION_MAX_MESSAGES", "10"))
+
+# Operational logging configuration
+LOG_LEVEL = os.getenv("DOCPILOT_LOG_LEVEL", "INFO")
+LOG_FORMAT = os.getenv("DOCPILOT_LOG_FORMAT", "json")
+SLOW_QUERY_MS = float(os.getenv("DOCPILOT_SLOW_QUERY_MS", "250.0"))
