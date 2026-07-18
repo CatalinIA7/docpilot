@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -50,3 +51,19 @@ class DocumentSearchResponse(BaseModel):
     created_at: datetime
     word_count: int
     preview: str
+
+
+class Citation(BaseModel):
+    """A citation pointing to a source section in the document."""
+
+    source_id: int
+    page: int | None = None
+    paragraph: int | None = None
+    excerpt: str
+
+
+class ChatResponse(BaseModel):
+    """Response to a chat question."""
+
+    answer: str
+    citations: list[Citation] = []

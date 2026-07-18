@@ -11,14 +11,18 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from ai_service import AIConfigError, AIProviderError
+from ai_service import AIConfigError, AIProviderError, Citation
 
 _MOCK_TARGET = "routers.chat.answer_question"
 
 
-def _mock_answer(answer: str = "Mocked answer."):
-    """Return a patcher that makes answer_question return a fixed string."""
-    return patch(_MOCK_TARGET, return_value=answer)
+def _mock_answer(
+    answer: str = "Mocked answer.", citations: list[Citation] | None = None
+):
+    """Return a patcher that makes answer_question return (answer, citations)."""
+    if citations is None:
+        citations = []
+    return patch(_MOCK_TARGET, return_value=(answer, citations))
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +130,109 @@ class TestChatSuccess:
                 json={"question": "Tell me something."},
                 headers=auth_headers,
             )
-        assert "answer" in resp.json()
+        data = resp.json()
+        assert "answer" in data
+        assert "citations" in data
+        assert isinstance(data["citations"], list)
+
+    def test_response_with_citations_pdf(self, client, auth_headers):
+        """Test citations are returned for PDF with page numbers."""
+        from tests.conftest import make_minimal_pdf
+
+        # Upload a PDF
+        resp = client.post(
+            "/documents",
+            files={
+                "file": (
+                    "test.pdf",
+                    make_minimal_pdf(),
+                    "application/pdf",
+                )
+            },
+            headers=auth_headers,
+        )
+        doc = resp.json()
+
+        # Mock answer with PDF citations (page numbers)
+        citation = Citation(
+            source_id=1, page=1, paragraph=None, excerpt="Sample PDF text"
+        )
+        with _mock_answer("Found on first page.", [citation]):
+            resp = client.post(
+                f"/documents/{doc['id']}/chat",
+                json={"question": "Where is it?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["citations"]) == 1
+        assert data["citations"][0]["source_id"] == 1
+        assert data["citations"][0]["page"] == 1
+        assert data["citations"][0]["paragraph"] is None
+        assert "Sample PDF text" in data["citations"][0]["excerpt"]
+
+    def test_response_with_citations_docx(self, client, auth_headers, doc_with_text):
+        """Test citations are returned for DOCX with paragraph numbers."""
+        # Mock answer with DOCX citations (paragraph numbers)
+        citation = Citation(
+            source_id=1,
+            page=None,
+            paragraph=1,
+            excerpt="Sample paragraph text",
+        )
+        with _mock_answer("From first paragraph.", [citation]):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "Where?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["citations"]) == 1
+        assert data["citations"][0]["source_id"] == 1
+        assert data["citations"][0]["page"] is None
+        assert data["citations"][0]["paragraph"] == 1
+        assert "Sample paragraph text" in data["citations"][0]["excerpt"]
+
+    def test_response_with_multiple_citations(self, client, auth_headers, doc_with_text):
+        """Test multiple citations in response."""
+        citations = [
+            Citation(
+                source_id=1,
+                page=None,
+                paragraph=1,
+                excerpt="First source",
+            ),
+            Citation(
+                source_id=2,
+                page=None,
+                paragraph=2,
+                excerpt="Second source",
+            ),
+        ]
+        with _mock_answer("Answer from multiple sources.", citations):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "Multiple sources?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["citations"]) == 2
+        assert data["citations"][0]["source_id"] == 1
+        assert data["citations"][1]["source_id"] == 2
+
+    def test_response_with_no_citations(self, client, auth_headers, doc_with_text):
+        """Test response with empty citations list."""
+        with _mock_answer("Answer without citations.", []):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "Unanswerable?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["citations"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -209,3 +315,60 @@ class TestChatErrors:
             )
         assert resp.status_code == 502
         assert "upstream failure" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Citation schema
+# ---------------------------------------------------------------------------
+
+
+class TestCitationSchema:
+    """Test citation response schema."""
+
+    def test_citation_has_required_fields(self, client, auth_headers, doc_with_text):
+        """Citation must have source_id and excerpt."""
+        citation = Citation(
+            source_id=1, page=1, paragraph=None, excerpt="Text"
+        )
+        with _mock_answer("Answer", [citation]):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "Q?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        c = data["citations"][0]
+        assert "source_id" in c
+        assert "excerpt" in c
+        assert c["source_id"] == 1
+
+    def test_citation_page_can_be_null(self, client, auth_headers, doc_with_text):
+        """Page can be null for DOCX (use paragraph instead)."""
+        citation = Citation(
+            source_id=1, page=None, paragraph=2, excerpt="Para text"
+        )
+        with _mock_answer("Answer", [citation]):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "Q?"},
+                headers=auth_headers,
+            )
+        data = resp.json()
+        assert data["citations"][0]["page"] is None
+        assert data["citations"][0]["paragraph"] == 2
+
+    def test_citation_paragraph_can_be_null(self, client, auth_headers, doc_with_text):
+        """Paragraph can be null for PDF (use page instead)."""
+        citation = Citation(
+            source_id=1, page=3, paragraph=None, excerpt="Page text"
+        )
+        with _mock_answer("Answer", [citation]):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "Q?"},
+                headers=auth_headers,
+            )
+        data = resp.json()
+        assert data["citations"][0]["page"] == 3
+        assert data["citations"][0]["paragraph"] is None

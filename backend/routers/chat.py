@@ -5,6 +5,7 @@ POST /documents/{document_id}/chat
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,7 +16,9 @@ from sqlalchemy.orm import Session
 from ai_service import AIConfigError, AIProviderError, answer_question
 from auth import get_current_user
 from database import get_db
+from document_parser import extract_document_text
 from models import Document, User
+from schemas import ChatResponse
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +40,6 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("Question must not be empty or whitespace.")
         return v.strip()
-
-
-class ChatResponse(BaseModel):
-    answer: str
 
 
 # ---------------------------------------------------------------------------
@@ -77,10 +76,18 @@ def chat_with_document(
             detail="This document has no extractable text and cannot be used for chat.",
         )
 
-    # 3. Call AI service.
+    # 3. Extract document sections (for prompting and citations).
+    # Note: extract_document_text() returns _sections in a special key
+    # that is not stored in the DB, only used for AI requests.
+    extracted = extract_document_text(
+        __import__("pathlib").Path(f"uploads/{document.stored_filename}")
+    )
+    sections = extracted.get("_sections", [])
+
+    # 4. Call AI service with sections.
     try:
-        answer = answer_question(
-            document_text=document.text,
+        answer, citations = answer_question(
+            sections=sections,
             question=body.question,
         )
     except AIConfigError as exc:
@@ -96,4 +103,17 @@ def chat_with_document(
             detail="The AI service is temporarily unavailable. Please try again later.",
         ) from exc
 
-    return ChatResponse(answer=answer)
+    # Convert ai_service.Citation to schemas.Citation for response
+    from schemas import Citation as SchemaCitation
+
+    response_citations = [
+        SchemaCitation(
+            source_id=c.source_id,
+            page=c.page,
+            paragraph=c.paragraph,
+            excerpt=c.excerpt,
+        )
+        for c in citations
+    ]
+
+    return ChatResponse(answer=answer, citations=response_citations)
