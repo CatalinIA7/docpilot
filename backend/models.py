@@ -118,3 +118,36 @@ class EvaluationResult(Base):
 
     evaluation_run: Mapped[EvaluationRun] = relationship(back_populates="results")
     benchmark_question: Mapped[BenchmarkQuestion] = relationship(back_populates="evaluation_results")
+
+
+class AIRequestMetric(Base):
+    __tablename__ = "ai_request_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), unique=True, index=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="success")
+    failure_stage: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    total_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    question_embedding_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    retrieval_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    generation_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    candidate_chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    embedded_candidate_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retrieved_chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retrieved_chunk_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=[])
+    retrieval_scores: Mapped[list[float]] = mapped_column(JSON, nullable=False, default=[])
+    retrieval_top_k: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retrieval_min_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    prompt_character_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    response_character_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    citation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ai_model: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    embedding_model: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    embedding_dimension: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    provider_error_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
