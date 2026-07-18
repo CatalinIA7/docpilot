@@ -181,8 +181,11 @@ Expected endpoints after deployment:
 
 - Frontend: `https://<frontend-service-host>/`
 - Backend: `https://<backend-service-host>/`
-- API documentation: `https://<backend-service-host>/docs`
 - Backend health: `https://<backend-service-host>/health`
+
+OpenAPI, Swagger UI, and ReDoc are disabled when
+`DOCPILOT_ENVIRONMENT=production`. Use the local development API docs when an
+endpoint reference is needed.
 
 The backend health check verifies that FastAPI responds. The frontend check
 verifies that Nginx serves the application root. These are liveness checks; the
@@ -267,7 +270,8 @@ orphaned files. Record backup timestamps and restore the closest consistent pair
 - Upload persistence uses a single attached disk, so the backend is single-instance.
 - There is no cross-region failover or object-storage replication.
 - The health endpoint is shallow and does not prove database or AI availability.
-- Log aggregation, alerting, error tracking, and deeper operational metrics belong
-  to the later production-monitoring milestone.
+- Structured logs and request correlation are implemented, but there is no
+  repository-defined alert destination, hosted error tracker, or independent log
+  retention.
 - Rate limiting is intentionally per backend process. A future multi-instance
   deployment needs a shared edge or datastore-backed limiter.
