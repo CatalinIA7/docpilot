@@ -1,0 +1,70 @@
+services:
+  db:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-docpilot}
+      POSTGRES_USER: ${POSTGRES_USER:-docpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docpilot_local_password}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docpilot} -d ${POSTGRES_DB:-docpilot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-docpilot}:${POSTGRES_PASSWORD:-docpilot_local_password}@db:5432/${POSTGRES_DB:-docpilot}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DOCPILOT_AI_MODEL: ${DOCPILOT_AI_MODEL:-gpt-4o-mini}
+      DOCPILOT_EMBEDDING_MODEL: ${DOCPILOT_EMBEDDING_MODEL:-text-embedding-3-small}
+      DOCPILOT_EMBEDDING_BATCH_SIZE: ${DOCPILOT_EMBEDDING_BATCH_SIZE:-100}
+      DOCPILOT_RETRIEVAL_TOP_K: ${DOCPILOT_RETRIEVAL_TOP_K:-5}
+      DOCPILOT_RETRIEVAL_MIN_SCORE: ${DOCPILOT_RETRIEVAL_MIN_SCORE:-0.0}
+      DOCPILOT_EVAL_MAX_LATENCY_MS: ${DOCPILOT_EVAL_MAX_LATENCY_MS:-5000.0}
+      DOCPILOT_EVAL_MIN_CONTEXT_REDUCTION: ${DOCPILOT_EVAL_MIN_CONTEXT_REDUCTION:-50.0}
+      DOCPILOT_EVAL_MIN_CITATION_PRESERVATION: ${DOCPILOT_EVAL_MIN_CITATION_PRESERVATION:-0.8}
+      DOCPILOT_EVAL_PERSIST_RESULTS: ${DOCPILOT_EVAL_PERSIST_RESULTS:-true}
+      DOCPILOT_CONVERSATION_MAX_MESSAGES: ${DOCPILOT_CONVERSATION_MAX_MESSAGES:-10}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-5500}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  db_data:
+  uploads_data:
