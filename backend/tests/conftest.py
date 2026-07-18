@@ -198,6 +198,26 @@ def second_user(client):
 
 
 # ---------------------------------------------------------------------------
+# Embedding service mock
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def mock_embed_texts(monkeypatch):
+    """Mock embed_texts to return deterministic mock embeddings for all tests."""
+    def mock_embeddings(texts):
+        """Return mock embeddings that match the number of input texts."""
+        if not texts:
+            return []
+        # Return a simple list of embeddings for testing
+        # In real use, this would be 384-dimensional vectors from text-embedding-3-small
+        return [[float(i) * 0.01 for _ in range(10)] for i in range(len(texts))]
+    
+    # Patch where embed_texts is imported and used
+    import routers.documents
+    monkeypatch.setattr(routers.documents, "embed_texts", mock_embeddings)
+
+
+# ---------------------------------------------------------------------------
 # Uploaded-document fixture
 # ---------------------------------------------------------------------------
 

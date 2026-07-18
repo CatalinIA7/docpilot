@@ -8,6 +8,12 @@ from config import ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE, UPLOAD_DIR
 from database import get_db
 from document_parser import extract_document_text
 from chunking import Chunker, ChunkingConfig
+from embedding_service import (
+    embed_texts,
+    EmbeddingConfigurationError,
+    EmbeddingProviderError,
+    EmbeddingResponseError,
+)
 from models import Document, DocumentChunk, User
 from schemas import DocumentResponse, DocumentSearchResponse, DocumentDetailResponse
 
@@ -88,7 +94,7 @@ async def upload_document(
             chunker = Chunker(ChunkingConfig())
             chunks = chunker.chunk(sections)
             
-            # Create database chunk records
+            # Create database chunk records (embeddings will be added next)
             db_chunks = [
                 DocumentChunk(
                     document_id=document_id,
@@ -97,13 +103,41 @@ async def upload_document(
                     page=chunk.page,
                     paragraph=chunk.paragraph,
                     source_section_id=chunk.source_section_id,
+                    embedding=None,  # Will be filled from embedding service
                 )
                 for chunk in chunks
             ]
             
+            # Generate embeddings for all chunks
+            try:
+                chunk_texts = [chunk.text for chunk in chunks]
+                embeddings = embed_texts(chunk_texts)
+                
+                # Validate deterministic mapping: exactly one embedding per chunk
+                if len(embeddings) != len(db_chunks):
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Embedding mismatch: expected {len(db_chunks)} embeddings but got {len(embeddings)}"
+                    )
+                
+                # Associate each embedding with its chunk
+                for db_chunk, embedding in zip(db_chunks, embeddings):
+                    db_chunk.embedding = embedding
+            
+            except (EmbeddingConfigurationError, EmbeddingProviderError, EmbeddingResponseError) as exc:
+                # Embedding generation failed - rollback the transaction
+                stored_path.unlink(missing_ok=True)
+                db.rollback()
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Could not generate embeddings for chunks: {str(exc)}"
+                )
+            
             # Add all chunks to the session
             for chunk in db_chunks:
                 db.add(chunk)
+        except HTTPException:
+            raise
         except Exception as exc:
             stored_path.unlink(missing_ok=True)
             db.rollback()
