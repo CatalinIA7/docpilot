@@ -372,3 +372,134 @@ class TestCitationSchema:
         data = resp.json()
         assert data["citations"][0]["page"] == 3
         assert data["citations"][0]["paragraph"] is None
+
+
+# ---------------------------------------------------------------------------
+# Path Resolution (Regression Tests)
+# ---------------------------------------------------------------------------
+# These tests ensure chat file resolution works regardless of working directory
+# (the fix moved from relative paths to UPLOAD_DIR config)
+
+class TestPathResolution:
+    """Regression tests for file path resolution stability."""
+
+    def test_chat_resolves_files_from_configured_upload_dir(
+        self, client, auth_headers, doc_with_text
+    ):
+        """Chat endpoint resolves document files using UPLOAD_DIR, not cwd."""
+        # This test passes if the chat endpoint can find the uploaded document
+        # regardless of the process working directory. The fix uses UPLOAD_DIR
+        # from config.py instead of a relative path like 'uploads/...'
+        with _mock_answer("This is working"):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "Test question"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        assert resp.json()["answer"] == "This is working"
+
+    def test_chat_works_with_pdf_upload_using_absolute_paths(
+        self, client, auth_headers
+    ):
+        """Chat works with PDF documents using absolute path resolution."""
+        from tests.conftest import make_minimal_pdf
+
+        # Upload PDF
+        resp_upload = client.post(
+            "/documents",
+            files={"file": ("test.pdf", make_minimal_pdf(), "application/pdf")},
+            headers=auth_headers,
+        )
+        assert resp_upload.status_code == 201
+        doc_id = resp_upload.json()["id"]
+
+        # Chat with PDF
+        with _mock_answer("PDF content summary"):
+            resp = client.post(
+                f"/documents/{doc_id}/chat",
+                json={"question": "What is this PDF about?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        assert resp.json()["answer"] == "PDF content summary"
+
+    def test_chat_works_with_docx_upload_using_absolute_paths(
+        self, client, auth_headers
+    ):
+        """Chat works with DOCX documents using absolute path resolution."""
+        from tests.conftest import make_minimal_docx
+
+        # Upload DOCX
+        resp_upload = client.post(
+            "/documents",
+            files={
+                "file": (
+                    "test.docx",
+                    make_minimal_docx(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+            headers=auth_headers,
+        )
+        assert resp_upload.status_code == 201
+        doc_id = resp_upload.json()["id"]
+
+        # Chat with DOCX
+        with _mock_answer("DOCX content summary"):
+            resp = client.post(
+                f"/documents/{doc_id}/chat",
+                json={"question": "Summarize this document"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        assert resp.json()["answer"] == "DOCX content summary"
+
+    def test_chat_file_resolution_multiple_documents(
+        self, client, auth_headers
+    ):
+        """Chat resolves correct files for multiple uploaded documents."""
+        from tests.conftest import make_minimal_pdf, make_minimal_docx
+
+        # Upload two different documents
+        pdf_resp = client.post(
+            "/documents",
+            files={"file": ("doc1.pdf", make_minimal_pdf(), "application/pdf")},
+            headers=auth_headers,
+        )
+        docx_resp = client.post(
+            "/documents",
+            files={
+                "file": (
+                    "doc2.docx",
+                    make_minimal_docx(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+            headers=auth_headers,
+        )
+        assert pdf_resp.status_code == 201
+        assert docx_resp.status_code == 201
+
+        pdf_id = pdf_resp.json()["id"]
+        docx_id = docx_resp.json()["id"]
+
+        # Chat with PDF
+        with _mock_answer("PDF answer"):
+            resp1 = client.post(
+                f"/documents/{pdf_id}/chat",
+                json={"question": "PDF question"},
+                headers=auth_headers,
+            )
+        assert resp1.status_code == 200
+        assert resp1.json()["answer"] == "PDF answer"
+
+        # Chat with DOCX
+        with _mock_answer("DOCX answer"):
+            resp2 = client.post(
+                f"/documents/{docx_id}/chat",
+                json={"question": "DOCX question"},
+                headers=auth_headers,
+            )
+        assert resp2.status_code == 200
+        assert resp2.json()["answer"] == "DOCX answer"
