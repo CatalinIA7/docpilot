@@ -1,11 +1,12 @@
 """
 POST /documents/{document_id}/chat
+
+Chat with a document, optionally continuing a conversation.
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,11 +16,18 @@ from sqlalchemy.orm import Session
 
 from ai_service import AIConfigError, AIProviderError, answer_question
 from auth import get_current_user
-from config import UPLOAD_DIR
+from conversation_service import (
+    add_user_message,
+    add_assistant_message,
+    get_conversation,
+    get_recent_messages_for_context,
+    create_conversation,
+    _generate_title_from_question,
+)
 from database import get_db
 from document_parser import extract_document_text, SourceSection
-from models import Document, DocumentChunk, User
-from schemas import ChatResponse
+from models import Document, DocumentChunk, User, Conversation
+from schemas import ChatResponse, Citation as SchemaCitation
 from retrieval_service import (
     retrieve_chunks,
     RetrievalConfigurationError,
@@ -39,7 +47,9 @@ _MAX_QUESTION_LENGTH = 1_000
 
 
 class ChatRequest(BaseModel):
-    question: Annotated[str, Field(min_length=1, max_length=_MAX_QUESTION_LENGTH)]
+    question: Annotated[str, Field(min_length=1, max_length=_MAX_QUESTION_LENGTH
+)]
+    conversation_id: Annotated[str | None, Field(None, description="Optional conversation ID to continue")] = None
 
     @field_validator("question")
     @classmethod
@@ -65,8 +75,21 @@ def chat_with_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChatResponse:
-    # 1. Ownership check — intentionally returns 404 (not 403) so the route
-    #    does not confirm whether the document exists for other users.
+    """Chat with a document, optionally continuing a conversation.
+    
+    If conversation_id is provided:
+    - Loads recent messages for context
+    - Persists user message before generation
+    - Persists assistant message after generation
+    
+    If conversation_id is not provided:
+    - Performs single-turn chat
+    - No message persistence
+    
+    Always performs semantic retrieval on the current question.
+    """
+    
+    # 1. Verify document ownership
     document = db.scalar(
         select(Document).where(
             Document.id == document_id,
@@ -76,7 +99,41 @@ def chat_with_document(
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # 2. Load persisted chunks for this document
+    # 2. Handle conversation if conversation_id provided
+    conversation: Conversation | None = None
+    context_messages = []
+    
+    if body.conversation_id:
+        # Verify conversation ownership and document consistency
+        conversation = get_conversation(
+            db=db,
+            conversation_id=body.conversation_id,
+            user_id=current_user.id,
+        )
+        
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        if conversation.document_id != document_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Conversation does not belong to this document",
+            )
+        
+        # Load recent messages for context
+        context_messages = get_recent_messages_for_context(
+            db=db,
+            conversation_id=body.conversation_id,
+        )
+        
+        # Persist user message immediately
+        add_user_message(
+            db=db,
+            conversation_id=body.conversation_id,
+            question=body.question,
+        )
+
+    # 3. Load persisted chunks for this document
     chunks = list(
         db.scalars(
             select(DocumentChunk)
@@ -91,17 +148,16 @@ def chat_with_document(
             detail="This document has no extractable content and cannot be used for chat.",
         )
 
-    # 3. Filter chunks with embeddings for retrieval
+    # 4. Filter chunks with embeddings for retrieval
     embedded_chunks = [c for c in chunks if c.embedding is not None]
 
     if not embedded_chunks:
-        # No chunks have embeddings — cannot perform RAG retrieval
         raise HTTPException(
             status_code=400,
             detail="This document does not have embeddings and cannot be used for retrieval-based chat.",
         )
 
-    # 4. Retrieve relevant chunks using RAG
+    # 5. Retrieve relevant chunks using RAG
     try:
         retrieval_result = retrieve_chunks(
             question=body.question,
@@ -126,22 +182,21 @@ def chat_with_document(
             detail="Failed to retrieve relevant content. Please try again later.",
         ) from exc
 
-    # 5. Check if retrieval returned any chunks
+    # 6. Check if retrieval returned any chunks
     if not retrieval_result.chunks:
         raise HTTPException(
             status_code=400,
             detail="Could not find relevant content in this document to answer your question.",
         )
 
-    # 6. Convert retrieved chunks to SourceSection format for AI service
-    # Build a mapping from source_id to chunk metadata for citation validation
+    # 7. Convert retrieved chunks to SourceSection format for AI service
     retrieved_chunks_by_index = {
         rc.rank - 1: rc.chunk for rc in retrieval_result.chunks
     }
 
     source_sections = [
         SourceSection(
-            source_id=rc.rank,  # Use rank as source_id for citations
+            source_id=rc.rank,
             text=rc.chunk.text,
             page=rc.chunk.page,
             paragraph=rc.chunk.paragraph,
@@ -149,7 +204,7 @@ def chat_with_document(
         for rc in retrieval_result.chunks
     ]
 
-    # 7. Call AI service with retrieved chunks (not full document)
+    # 8. Call AI service with retrieved chunks
     try:
         answer, citations = answer_question(
             sections=source_sections,
@@ -168,16 +223,10 @@ def chat_with_document(
             detail="The AI service is temporarily unavailable. Please try again later.",
         ) from exc
 
-    # 8. Validate and convert citations
-    # Citations from AI service reference source_ids in the retrieved chunks.
-    # Validate that they are in range [1, len(retrieved_chunks)].
-    from schemas import Citation as SchemaCitation
-
+    # 9. Validate and convert citations
     response_citations = []
     for c in citations:
-        # Validate citation is within the retrieved set
         if c.source_id < 1 or c.source_id > len(retrieval_result.chunks):
-            # Skip citations that reference non-existent source IDs
             logger.warning(
                 "Skipping invalid citation source_id %d (only %d sources retrieved)",
                 c.source_id,
@@ -185,7 +234,6 @@ def chat_with_document(
             )
             continue
 
-        # Map back to the actual chunk to get verified metadata
         retrieved_chunk = retrieved_chunks_by_index.get(c.source_id - 1)
         if retrieved_chunk:
             response_citations.append(
@@ -196,5 +244,14 @@ def chat_with_document(
                     excerpt=retrieved_chunk.text[:150].rstrip() + ("..." if len(retrieved_chunk.text) > 150 else ""),
                 )
             )
+
+    # 10. If conversation, persist assistant message
+    if conversation:
+        add_assistant_message(
+            db=db,
+            conversation_id=conversation.id,
+            answer=answer,
+            citations=response_citations,
+        )
 
     return ChatResponse(answer=answer, citations=response_citations)

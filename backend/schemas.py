@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class RegisterRequest(BaseModel):
@@ -216,3 +217,71 @@ class RAGEvaluationComparisonResponse(BaseModel):
     citation_difference: int
     comparison_status: str
     created_at: str
+
+
+# Conversation and Message schemas
+
+class MessageSchema(BaseModel):
+    """Message in a conversation."""
+    id: str
+    role: str  # "user" or "assistant"
+    content: str
+    citations: list[dict] = []
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class ConversationCreateRequest(BaseModel):
+    """Create a new conversation."""
+    title: str | None = Field(None, max_length=255)
+    question: str | None = Field(None, max_length=1000, description="Optional first message")
+
+    @field_validator("title")
+    @classmethod
+    def title_strip(cls, v: str | None) -> str | None:
+        if v is not None and v.strip() == "":
+            raise ValueError("Title must not be empty")
+        return v.strip() if v else None
+
+    @field_validator("question")
+    @classmethod
+    def question_strip(cls, v: str | None) -> str | None:
+        if v is not None and v.strip() == "":
+            raise ValueError("Question must not be empty")
+        return v.strip() if v else None
+
+
+class ConversationResponse(BaseModel):
+    """Response for a conversation."""
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int | None = None
+    last_message_at: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class ConversationDetailResponse(ConversationResponse):
+    """Detailed response including messages."""
+    messages: list[MessageSchema] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ContinueChatRequest(BaseModel):
+    """Request to continue a conversation."""
+    conversation_id: str
+    question: Annotated[str, Field(min_length=1, max_length=1000)]
+
+    @field_validator("question")
+    @classmethod
+    def question_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Question must not be empty or whitespace.")
+        return v.strip()
