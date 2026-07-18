@@ -48,6 +48,56 @@ class TestUpload:
         )
         assert resp.status_code == 400
 
+    def test_upload_rejects_declared_mime_mismatch(self, client, auth_headers):
+        resp = client.post(
+            "/documents",
+            files={"file": ("spoofed.pdf", make_minimal_pdf(), "text/plain")},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 415
+
+    def test_upload_rejects_spoofed_pdf_content(self, client, auth_headers):
+        resp = client.post(
+            "/documents",
+            files={"file": ("spoofed.pdf", b"plain text", "application/pdf")},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "The uploaded file is not a valid PDF or DOCX document"
+
+    def test_upload_accepts_generic_binary_mime_after_signature_validation(
+        self, client, auth_headers
+    ):
+        resp = client.post(
+            "/documents",
+            files={"file": ("report.pdf", make_minimal_pdf(), "application/octet-stream")},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 201
+
+    def test_upload_sanitizes_windows_path_components(self, client, auth_headers):
+        resp = client.post(
+            "/documents",
+            files={"file": (r"..\..\report.pdf", make_minimal_pdf(), "application/pdf")},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 201
+        assert resp.json()["filename"] == "report.pdf"
+
+    def test_upload_rejects_file_above_application_limit(self, client, auth_headers):
+        oversized = b"%PDF-" + (b"x" * (10 * 1024 * 1024))
+        resp = client.post(
+            "/documents",
+            files={"file": ("large.pdf", oversized, "application/pdf")},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 413
+
     def test_upload_requires_auth(self, client):
         resp = client.post(
             "/documents",

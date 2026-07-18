@@ -12,6 +12,7 @@ from models import User
 
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer(auto_error=False)
+_DUMMY_PASSWORD_HASH = password_hash.hash("DocPilot timing comparison password")
 
 
 def hash_password(password: str) -> str:
@@ -19,12 +20,25 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
-    return password_hash.verify(password, stored_hash)
+    try:
+        return password_hash.verify(password, stored_hash)
+    except Exception:
+        return False
 
 
 def create_access_token(user_id: int) -> str:
-    expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    return jwt.encode({"sub": str(user_id), "exp": expires}, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    issued_at = datetime.now(timezone.utc)
+    expires = issued_at + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    return jwt.encode(
+        {"sub": str(user_id), "iat": issued_at, "exp": expires},
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM,
+    )
+
+
+def credentials_are_valid(password: str, stored_hash: str | None) -> bool:
+    """Perform one password verification even when an account is not found."""
+    return verify_password(password, stored_hash or _DUMMY_PASSWORD_HASH)
 
 
 def get_current_user(
@@ -39,9 +53,16 @@ def get_current_user(
     if credentials is None:
         raise unauthorized
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            credentials.credentials,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+            options={"require": ["exp", "sub"]},
+        )
         user_id = int(payload.get("sub", ""))
     except (InvalidTokenError, ValueError, TypeError):
+        raise unauthorized
+    if user_id <= 0:
         raise unauthorized
     user = db.scalar(select(User).where(User.id == user_id))
     if user is None:

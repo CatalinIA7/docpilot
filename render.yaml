@@ -25,8 +25,26 @@ services:
         sync: false
       - key: DOCPILOT_CORS_ORIGINS
         sync: false
+      - key: DOCPILOT_ENVIRONMENT
+        value: production
       - key: DOCPILOT_UPLOAD_DIR
         value: /app/uploads
+      - key: DOCPILOT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
+      - key: DOCPILOT_MAX_REQUEST_SIZE
+        value: "11534336"
+      - key: DOCPILOT_MAX_DOCX_UNCOMPRESSED_SIZE
+        value: "52428800"
+      - key: DOCPILOT_MAX_DOCX_ENTRIES
+        value: "2000"
+      - key: DOCPILOT_RATE_LIMIT_ENABLED
+        value: "true"
+      - key: DOCPILOT_AUTH_RATE_LIMIT_PER_MINUTE
+        value: "20"
+      - key: DOCPILOT_UPLOAD_RATE_LIMIT_PER_MINUTE
+        value: "10"
+      - key: DOCPILOT_AI_RATE_LIMIT_PER_MINUTE
+        value: "30"
       - key: DOCPILOT_AI_MODEL
         value: gpt-4o-mini
       - key: DOCPILOT_EMBEDDING_MODEL
@@ -66,7 +84,7 @@ services:
     autoDeployTrigger: checksPass
     envVars:
       - key: PORT
-        value: "80"
+        value: "8080"
       - key: DOCPILOT_API_URL
         sync: false
 

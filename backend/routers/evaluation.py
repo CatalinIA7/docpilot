@@ -298,9 +298,18 @@ async def run_rag_evaluation_comparison(
             chunks=chunks,
         )
     except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "evaluation_execution_failed",
+            "Evaluation comparison execution failed",
+            document_id=document_id,
+            user_id=current_user.id,
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Evaluation failed: {str(exc)}",
+            detail="Evaluation failed. Please try again later.",
         ) from exc
 
     # Optionally persist the comparison

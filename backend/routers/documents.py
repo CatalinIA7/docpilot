@@ -1,12 +1,20 @@
+import io
 import logging
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import time
 from uuid import uuid4
+import zipfile
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from auth import get_current_user
-from config import ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE, UPLOAD_DIR
+from config import (
+    ALLOWED_EXTENSIONS,
+    MAX_DOCX_ENTRIES,
+    MAX_DOCX_UNCOMPRESSED_SIZE,
+    MAX_UPLOAD_SIZE,
+    UPLOAD_DIR,
+)
 from database import get_db
 from document_parser import extract_document_text
 from chunking import Chunker, ChunkingConfig
@@ -22,6 +30,75 @@ from observability import log_event
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 logger = logging.getLogger("docpilot.documents")
+
+_ALLOWED_CONTENT_TYPES = {
+    ".pdf": {"application/pdf", "application/octet-stream"},
+    ".docx": {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/octet-stream",
+    },
+}
+_DOCX_REQUIRED_ENTRIES = {"[Content_Types].xml", "word/document.xml"}
+
+
+def _sanitize_upload_filename(raw_filename: str | None) -> str:
+    """Return a bounded display filename with both path separator styles removed."""
+    normalized = (raw_filename or "").replace("\\", "/")
+    filename = Path(normalized).name.strip()
+    if (
+        filename in {"", ".", ".."}
+        or len(filename) > 255
+        or any(ord(character) < 32 or ord(character) == 127 for character in filename)
+    ):
+        raise ValueError("Invalid upload filename")
+    return filename
+
+
+def _validate_declared_content_type(extension: str, content_type: str | None) -> None:
+    normalized = (content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
+    if normalized not in _ALLOWED_CONTENT_TYPES[extension]:
+        raise ValueError("Declared content type does not match the file extension")
+
+
+def _validate_file_structure(extension: str, content: bytes) -> None:
+    """Validate signatures and bound DOCX archive expansion before parsing."""
+    if extension == ".pdf":
+        if b"%PDF-" not in content[:1024]:
+            raise ValueError("Invalid PDF signature")
+        return
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            entries = archive.infolist()
+            names = {entry.filename for entry in entries}
+            if len(entries) > MAX_DOCX_ENTRIES:
+                raise ValueError("DOCX archive has too many entries")
+            if not _DOCX_REQUIRED_ENTRIES.issubset(names):
+                raise ValueError("DOCX archive is missing required entries")
+            if sum(entry.file_size for entry in entries) > MAX_DOCX_UNCOMPRESSED_SIZE:
+                raise ValueError("DOCX archive expands beyond the configured limit")
+            for entry in entries:
+                normalized_name = entry.filename.replace("\\", "/")
+                parts = PurePosixPath(normalized_name).parts
+                if (
+                    PurePosixPath(normalized_name).is_absolute()
+                    or ".." in parts
+                    or entry.flag_bits & 0x1
+                ):
+                    raise ValueError("DOCX archive contains an unsafe entry")
+    except (zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        raise ValueError("Invalid DOCX archive") from exc
+
+
+def _safe_upload_path(stored_filename: str) -> Path:
+    """Resolve a storage name without allowing a database value to escape uploads."""
+    if Path(stored_filename).name != stored_filename or "\\" in stored_filename:
+        raise ValueError("Unsafe stored filename")
+    upload_root = UPLOAD_DIR.resolve()
+    candidate = (upload_root / stored_filename).resolve()
+    if candidate.parent != upload_root:
+        raise ValueError("Unsafe stored filename")
+    return candidate
 
 
 def _build_preview(document: Document, query: str) -> str:
@@ -57,20 +134,37 @@ async def upload_document(
     db: Session = Depends(get_db),
 ):
     started_at = time.perf_counter()
-    original_name = Path(file.filename or "").name
+    try:
+        original_name = _sanitize_upload_filename(file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid upload filename") from exc
     extension = Path(original_name).suffix.lower()
-    if not original_name or extension not in ALLOWED_EXTENSIONS:
+    if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only DOCX and PDF files are supported")
+    try:
+        _validate_declared_content_type(extension, file.content_type)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=415,
+            detail="Declared content type does not match the file extension",
+        ) from exc
 
     content = await file.read(MAX_UPLOAD_SIZE + 1)
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File exceeds the 10 MB limit")
     if not content:
         raise HTTPException(status_code=400, detail="The uploaded file is empty")
+    try:
+        _validate_file_structure(extension, content)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="The uploaded file is not a valid PDF or DOCX document",
+        ) from exc
 
     document_id = str(uuid4())
     stored_filename = f"{document_id}{extension}"
-    stored_path = UPLOAD_DIR / stored_filename
+    stored_path = _safe_upload_path(stored_filename)
     try:
         stored_path.write_bytes(content)
     except OSError as exc:
@@ -102,7 +196,7 @@ async def upload_document(
             duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
             error_type=type(exc).__name__,
         )
-        raise HTTPException(status_code=422, detail=f"Could not parse document: {exc}")
+        raise HTTPException(status_code=422, detail="Could not parse the uploaded document")
 
     # Extract only the fields needed for Document model (exclude internal _sections)
     doc_data = {k: v for k, v in parsed.items() if not k.startswith("_")}
@@ -173,7 +267,7 @@ async def upload_document(
                 )
                 raise HTTPException(
                     status_code=502,
-                    detail=f"Could not generate embeddings for chunks: {str(exc)}"
+                    detail="Could not generate embeddings for document chunks"
                 )
             
             # Add all chunks to the session
@@ -194,7 +288,7 @@ async def upload_document(
                 duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
                 error_type=type(exc).__name__,
             )
-            raise HTTPException(status_code=422, detail=f"Could not generate document chunks: {exc}")
+            raise HTTPException(status_code=422, detail="Could not process document chunks")
     
     db.add(document)
     db.commit()
@@ -278,7 +372,16 @@ def delete_document(
     )
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    (UPLOAD_DIR / document.stored_filename).unlink(missing_ok=True)
+    try:
+        _safe_upload_path(document.stored_filename).unlink(missing_ok=True)
+    except ValueError:
+        log_event(
+            logger,
+            logging.ERROR,
+            "document_storage_path_rejected",
+            "Stored document path failed containment validation",
+            document_id=document.id,
+        )
     db.delete(document)
     db.commit()
 

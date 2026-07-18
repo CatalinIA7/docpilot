@@ -1,4 +1,4 @@
-FROM python:3.13.5-slim-bookworm AS builder
+FROM python:3.13.14-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,7 +12,7 @@ RUN python -m pip install --upgrade pip \
     && pip wheel --wheel-dir /wheels -r requirements.txt
 
 
-FROM python:3.13.5-slim-bookworm AS runtime
+FROM python:3.13.14-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

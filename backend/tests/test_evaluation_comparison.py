@@ -168,7 +168,7 @@ class TestComparisonExecution:
             )
             
             assert not result.success
-            assert "Baseline error" in result.error
+            assert result.error == "Exception: evaluation failed"
 
 
 # ============================================================================
