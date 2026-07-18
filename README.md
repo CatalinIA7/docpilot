@@ -80,6 +80,34 @@ Run the backend test suite in containers:
 docker compose run --rm backend pytest
 ```
 
+## Continuous Integration
+
+GitHub Actions CI is defined in `.github/workflows/ci.yml`.
+
+It runs on:
+
+- Pull requests targeting `main`
+- Pushes to `main`
+- Manual dispatch (`workflow_dispatch`)
+
+CI validates:
+
+- Backend dependency installation and full backend test suite (`pytest`)
+- Frontend static asset validation
+- Docker Compose configuration (`docker compose config`)
+- Backend and frontend Docker image builds (`docker compose build backend frontend`)
+
+CI in this repository does not deploy infrastructure and does not publish container images.
+
+Local equivalents:
+
+```bash
+cd backend && python -m pip install -r requirements.txt && pytest
+test -f frontend/index.html && test -f frontend/script.js && test -f frontend/style.css
+docker compose config
+docker compose build backend frontend
+```
+
 ## Stop
 
 ```bash
