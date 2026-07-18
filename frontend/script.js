@@ -33,6 +33,11 @@ const listLoading = $("#list-loading");
 const uploadButton = $("#upload-button");
 const searchButton = $("#search-button");
 const clearSearchButton = $("#clear-search-button");
+const chatQuestion = $("#chat-question");
+const chatAskButton = $("#chat-ask-button");
+const chatError = $("#chat-error");
+const chatAnswerContainer = $("#chat-answer-container");
+const chatAnswer = $("#chat-answer");
 
 function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -109,6 +114,8 @@ function renderDocumentDetail(document) {
   if (detailDeleteButton) {
     detailDeleteButton.disabled = false;
   }
+  // Reset chat state for new document
+  resetChatPanel();
   setDetailState(false);
   detailContent.classList.remove("hidden");
 }
@@ -116,6 +123,56 @@ function renderDocumentDetail(document) {
 let currentDetailId = null;
 let currentDetailFilename = "";
 let isDeletingDetail = false;
+let isChatPending = false;
+
+function resetChatPanel() {
+  if (chatQuestion) chatQuestion.value = "";
+  if (chatError) chatError.classList.add("hidden");
+  if (chatAnswerContainer) chatAnswerContainer.classList.add("hidden");
+  isChatPending = false;
+  if (chatAskButton) chatAskButton.disabled = false;
+}
+
+async function askAIQuestion() {
+  if (isChatPending || !currentDetailId) return;
+  const question = (chatQuestion.value || "").trim();
+  if (!question) {
+    if (chatError) {
+      chatError.textContent = "Please enter a question.";
+      chatError.classList.remove("hidden");
+    }
+    return;
+  }
+  isChatPending = true;
+  if (chatAskButton) chatAskButton.disabled = true;
+  if (chatError) chatError.classList.add("hidden");
+  try {
+    const response = await api(`/documents/${currentDetailId}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    });
+    if (chatAnswer) chatAnswer.textContent = response.answer || "No answer received.";
+    if (chatAnswerContainer) chatAnswerContainer.classList.remove("hidden");
+  } catch (error) {
+    let friendlyMessage = "Unable to get an answer. Please try again.";
+    if (error.status === 502) {
+      friendlyMessage = "The AI service is temporarily unavailable. Please try again later.";
+    } else if (error.status === 503) {
+      friendlyMessage = "The AI service is not configured. Please contact the administrator.";
+    } else if (error.status === 400) {
+      friendlyMessage = error.message || friendlyMessage;
+    } else if (error.message === "Request failed" || error.message === "Failed to fetch") {
+      friendlyMessage = "Network error. Please check your connection and try again.";
+    }
+    if (chatError) {
+      chatError.textContent = friendlyMessage;
+      chatError.classList.remove("hidden");
+    }
+  } finally {
+    isChatPending = false;
+    if (chatAskButton) chatAskButton.disabled = false;
+  }
+}
 
 async function deleteDetailDocument() {
   if (isDeletingDetail || !currentDetailId) return;
@@ -422,6 +479,13 @@ const fileInput = $("#file-input");
 const dropZone = $("#drop-zone");
 detailBackButton.addEventListener("click", handleDetailBack);
 if (detailDeleteButton) detailDeleteButton.addEventListener("click", deleteDetailDocument);
+if (chatAskButton) chatAskButton.addEventListener("click", askAIQuestion);
+if (chatQuestion) chatQuestion.addEventListener("keydown", (event) => {
+  if (event.ctrlKey && event.key === "Enter") {
+    event.preventDefault();
+    askAIQuestion();
+  }
+});
 $("#upload-button").addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => { if (fileInput.files[0]) upload(fileInput.files[0]); fileInput.value = ""; });
 ["dragenter", "dragover"].forEach((name) => dropZone.addEventListener(name, (event) => { event.preventDefault(); dropZone.classList.add("dragging"); }));

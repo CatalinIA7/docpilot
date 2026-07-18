@@ -11,6 +11,12 @@
     .danger{border:0;padding:10px 16px;border-radius:10px;background:#dc2626;color:#fff;font-weight:700;cursor:pointer}
     .danger:hover:not(:disabled){background:#b91c1c}
     .danger:disabled{opacity:.55;cursor:not-allowed}
+    .chat-panel{display:grid;gap:12px}
+    .chat-input{padding:10px;border:1px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:inherit;resize:vertical}
+    .chat-input:focus{outline:none;border-color:#7c3aed;box-shadow:0 0 0 3px #7c3aed33}
+    .chat-answer-container{padding:12px;background:#f9fafb;border-radius:8px}
+    .chat-answer-label{font-weight:600;font-size:14px;margin-bottom:6px;color:#374151}
+    .chat-answer{margin:0;line-height:1.6;color:#111827}
   </style>
 </head>
 <body>
@@ -69,6 +75,18 @@
             <section class="detail-section">
               <h3>Extracted text</h3>
               <pre id="detail-text"></pre>
+            </section>
+            <section class="detail-section">
+              <h3>Ask AI about this document</h3>
+              <div class="chat-panel">
+                <textarea id="chat-question" class="chat-input" placeholder="Ask a question about this document..." rows="3"></textarea>
+                <button id="chat-ask-button" class="primary" type="button">Ask AI</button>
+                <div id="chat-error" class="detail-error hidden" role="alert"></div>
+                <div id="chat-answer-container" class="chat-answer-container hidden">
+                  <div class="chat-answer-label">Answer:</div>
+                  <p id="chat-answer" class="chat-answer"></p>
+                </div>
+              </div>
             </section>
           </div>
         </div>
