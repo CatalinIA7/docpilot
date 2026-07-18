@@ -1,4 +1,6 @@
+import logging
 from pathlib import Path
+import time
 from uuid import uuid4
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, or_, select
@@ -16,8 +18,10 @@ from embedding_service import (
 )
 from models import Document, DocumentChunk, User
 from schemas import DocumentResponse, DocumentSearchResponse, DocumentDetailResponse
+from observability import log_event
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+logger = logging.getLogger("docpilot.documents")
 
 
 def _build_preview(document: Document, query: str) -> str:
@@ -52,6 +56,7 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    started_at = time.perf_counter()
     original_name = Path(file.filename or "").name
     extension = Path(original_name).suffix.lower()
     if not original_name or extension not in ALLOWED_EXTENSIONS:
@@ -66,12 +71,37 @@ async def upload_document(
     document_id = str(uuid4())
     stored_filename = f"{document_id}{extension}"
     stored_path = UPLOAD_DIR / stored_filename
-    stored_path.write_bytes(content)
+    try:
+        stored_path.write_bytes(content)
+    except OSError as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "document_storage_failed",
+            "Uploaded document could not be written",
+            document_id=document_id,
+            file_type=extension.removeprefix("."),
+            size_bytes=len(content),
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            error_type=type(exc).__name__,
+        )
+        raise
 
     try:
         parsed = extract_document_text(stored_path)
     except Exception as exc:
         stored_path.unlink(missing_ok=True)
+        log_event(
+            logger,
+            logging.ERROR,
+            "document_parsing_failed",
+            "Uploaded document could not be parsed",
+            document_id=document_id,
+            file_type=extension.removeprefix("."),
+            size_bytes=len(content),
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(status_code=422, detail=f"Could not parse document: {exc}")
 
     # Extract only the fields needed for Document model (exclude internal _sections)
@@ -88,11 +118,13 @@ async def upload_document(
     
     # Extract sections for chunking (from the internal _sections list)
     sections = parsed.get("_sections", [])
+    chunk_count = 0
     if sections:
         try:
             # Generate chunks using the chunking module
             chunker = Chunker(ChunkingConfig())
             chunks = chunker.chunk(sections)
+            chunk_count = len(chunks)
             
             # Create database chunk records (embeddings will be added next)
             db_chunks = [
@@ -128,6 +160,17 @@ async def upload_document(
                 # Embedding generation failed - rollback the transaction
                 stored_path.unlink(missing_ok=True)
                 db.rollback()
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "document_embedding_failed",
+                    "Document chunk embeddings could not be generated",
+                    document_id=document_id,
+                    file_type=extension.removeprefix("."),
+                    chunk_count=chunk_count,
+                    duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                    error_type=type(exc).__name__,
+                )
                 raise HTTPException(
                     status_code=502,
                     detail=f"Could not generate embeddings for chunks: {str(exc)}"
@@ -141,11 +184,34 @@ async def upload_document(
         except Exception as exc:
             stored_path.unlink(missing_ok=True)
             db.rollback()
+            log_event(
+                logger,
+                logging.ERROR,
+                "document_chunking_failed",
+                "Document chunks could not be generated",
+                document_id=document_id,
+                file_type=extension.removeprefix("."),
+                duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                error_type=type(exc).__name__,
+            )
             raise HTTPException(status_code=422, detail=f"Could not generate document chunks: {exc}")
     
     db.add(document)
     db.commit()
     db.refresh(document)
+    log_event(
+        logger,
+        logging.INFO,
+        "document_upload_completed",
+        "Document upload completed",
+        document_id=document_id,
+        user_id=current_user.id,
+        file_type=extension.removeprefix("."),
+        size_bytes=len(content),
+        section_count=len(sections),
+        chunk_count=chunk_count,
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+    )
     return document
 
 

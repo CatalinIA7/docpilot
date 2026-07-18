@@ -47,6 +47,12 @@ services:
         value: "true"
       - key: DOCPILOT_CONVERSATION_MAX_MESSAGES
         value: "10"
+      - key: DOCPILOT_LOG_LEVEL
+        value: INFO
+      - key: DOCPILOT_LOG_FORMAT
+        value: json
+      - key: DOCPILOT_SLOW_QUERY_MS
+        value: "250"
 
   - type: web
     name: docpilot-frontend

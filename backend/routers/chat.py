@@ -7,6 +7,7 @@ Chat with a document, optionally continuing a conversation.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -34,8 +35,9 @@ from retrieval_service import (
     RetrievalProviderError,
     RetrievalResponseError,
 )
+from observability import log_event
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("docpilot.chat")
 
 router = APIRouter(tags=["chat"])
 
@@ -89,6 +91,8 @@ def chat_with_document(
     Always performs semantic retrieval on the current question.
     """
     
+    started_at = time.perf_counter()
+
     # 1. Verify document ownership
     document = db.scalar(
         select(Document).where(
@@ -164,19 +168,40 @@ def chat_with_document(
             chunks=embedded_chunks,
         )
     except RetrievalConfigurationError as exc:
-        logger.error("Retrieval configuration error: %s", exc)
+        log_event(
+            logger,
+            logging.ERROR,
+            "chat_retrieval_failed",
+            "Chat retrieval configuration failed",
+            document_id=document_id,
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(
             status_code=503,
             detail="Retrieval service is not configured. Please contact the administrator.",
         ) from exc
     except RetrievalProviderError as exc:
-        logger.error("Retrieval provider error: %s", exc)
+        log_event(
+            logger,
+            logging.ERROR,
+            "chat_retrieval_failed",
+            "Chat retrieval provider failed",
+            document_id=document_id,
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(
             status_code=502,
             detail="The embedding service is temporarily unavailable. Please try again later.",
         ) from exc
     except RetrievalResponseError as exc:
-        logger.error("Retrieval response error: %s", exc)
+        log_event(
+            logger,
+            logging.ERROR,
+            "chat_retrieval_failed",
+            "Chat retrieval response was invalid",
+            document_id=document_id,
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(
             status_code=502,
             detail="Failed to retrieve relevant content. Please try again later.",
@@ -211,13 +236,27 @@ def chat_with_document(
             question=body.question,
         )
     except AIConfigError as exc:
-        logger.error("AI configuration error: %s", exc)
+        log_event(
+            logger,
+            logging.ERROR,
+            "chat_generation_failed",
+            "Chat AI configuration failed",
+            document_id=document_id,
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(
             status_code=503,
             detail="AI service is not configured. Please contact the administrator.",
         ) from exc
     except AIProviderError as exc:
-        logger.error("AI provider error: %s", exc)
+        log_event(
+            logger,
+            logging.ERROR,
+            "chat_generation_failed",
+            "Chat AI provider failed",
+            document_id=document_id,
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(
             status_code=502,
             detail="The AI service is temporarily unavailable. Please try again later.",
@@ -227,10 +266,14 @@ def chat_with_document(
     response_citations = []
     for c in citations:
         if c.source_id < 1 or c.source_id > len(retrieval_result.chunks):
-            logger.warning(
-                "Skipping invalid citation source_id %d (only %d sources retrieved)",
-                c.source_id,
-                len(retrieval_result.chunks),
+            log_event(
+                logger,
+                logging.WARNING,
+                "chat_citation_rejected",
+                "Model citation referenced an unavailable source",
+                document_id=document_id,
+                source_id=c.source_id,
+                retrieved_source_count=len(retrieval_result.chunks),
             )
             continue
 
@@ -254,4 +297,15 @@ def chat_with_document(
             citations=response_citations,
         )
 
+    log_event(
+        logger,
+        logging.INFO,
+        "chat_completed",
+        "Grounded chat request completed",
+        document_id=document_id,
+        conversation_id=conversation.id if conversation else None,
+        retrieved_chunk_count=len(retrieval_result.chunks),
+        citation_count=len(response_citations),
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+    )
     return ChatResponse(answer=answer, citations=response_citations)

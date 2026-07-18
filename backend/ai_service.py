@@ -20,11 +20,13 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 
 from document_parser import SourceSection
+from observability import log_event
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("docpilot.ai")
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -172,6 +174,7 @@ def answer_question(
     AIProviderError – OpenAI returned an error.
     """
     api_key = _get_api_key()  # raises AIConfigError if missing
+    model = _get_model()
 
     # Truncate sections silently if combined text exceeds the character limit.
     truncated_sections = sections
@@ -202,12 +205,13 @@ def answer_question(
 
     user_message = _build_prompt_with_sections(truncated_sections, question)
 
+    started_at = time.perf_counter()
     try:
         from openai import OpenAI, OpenAIError
 
         client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
-            model=_get_model(),
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
@@ -217,10 +221,32 @@ def answer_question(
         )
         response_text = response.choices[0].message.content or ""
         answer, citations = _parse_response(response_text, truncated_sections)
+        log_event(
+            logger,
+            logging.INFO,
+            "llm_request_completed",
+            "LLM request completed",
+            provider="openai",
+            model=model,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            source_count=len(truncated_sections),
+            input_characters=len(user_message),
+            response_characters=len(response_text),
+            citation_count=len(citations),
+        )
         return answer, citations
     except Exception as exc:
-        # Log without the key or full document text.
-        logger.error("OpenAI API call failed: %s", type(exc).__name__)
+        log_event(
+            logger,
+            logging.ERROR,
+            "llm_request_failed",
+            "OpenAI chat request failed",
+            provider="openai",
+            model=model,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            source_count=len(truncated_sections),
+            error_type=type(exc).__name__,
+        )
         raise AIProviderError(
             "The AI provider returned an error. Please try again later."
         ) from exc

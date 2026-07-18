@@ -17,8 +17,9 @@ from document_parser import SourceSection, extract_document_text
 from ai_service import answer_question, Citation
 from retrieval_service import retrieve_chunks
 from models import Document, DocumentChunk
+from observability import log_event
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("docpilot.evaluation")
 
 
 # ============================================================================
@@ -208,7 +209,14 @@ class EvaluationRunner:
             )
 
         except Exception as exc:
-            logger.error("Baseline evaluation failed: %s", exc)
+            log_event(
+                logger,
+                logging.ERROR,
+                "evaluation_baseline_failed",
+                "Baseline evaluation failed",
+                document_id=document.id,
+                error_type=type(exc).__name__,
+            )
             return EvaluationRunMetrics(
                 mode="baseline",
                 success=False,
@@ -331,7 +339,14 @@ class EvaluationRunner:
             )
 
         except Exception as exc:
-            logger.error("RAG evaluation failed: %s", exc)
+            log_event(
+                logger,
+                logging.ERROR,
+                "evaluation_rag_failed",
+                "RAG evaluation failed",
+                document_id=document.id,
+                error_type=type(exc).__name__,
+            )
             return EvaluationRunMetrics(
                 mode="rag",
                 success=False,
