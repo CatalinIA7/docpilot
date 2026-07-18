@@ -26,12 +26,17 @@ jobs:
       - name: Create CI environment file
         run: sh scripts/create-ci-env.sh
 
+      - name: Apply and validate database migrations
+        run: |
+          docker compose --env-file .env.ci run --rm migrate
+          docker compose --env-file .env.ci run --rm migrate alembic check
+
       - name: Run backend test suite in Docker
         run: docker compose --env-file .env.ci run --rm backend pytest
 
       - name: Show service logs after failure
         if: failure()
-        run: docker compose --env-file .env.ci logs --no-color db backend
+        run: docker compose --env-file .env.ci logs --no-color db migrate backend
 
       - name: Clean up test containers and volumes
         if: always()
