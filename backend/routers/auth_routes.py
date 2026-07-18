@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from auth import create_access_token, get_current_user, hash_password, verify_password
+from auth import credentials_are_valid, create_access_token, get_current_user, hash_password
 from database import get_db
 from models import User
 from schemas import LoginRequest, RegisterRequest, TokenResponse, UserResponse
@@ -24,7 +24,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
-    if user is None or not verify_password(payload.password, user.password_hash):
+    password_hash = user.password_hash if user is not None else None
+    if not credentials_are_valid(payload.password, password_hash) or user is None:
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     return TokenResponse(access_token=create_access_token(user.id), user=user)
 

@@ -11,7 +11,7 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=128)
 
 
 class UserResponse(BaseModel):
@@ -223,15 +223,13 @@ class RAGEvaluationComparisonResponse(BaseModel):
 
 class MessageSchema(BaseModel):
     """Message in a conversation."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     role: str  # "user" or "assistant"
     content: str
     citations: list[dict] = []
     created_at: str
-
-    class Config:
-        from_attributes = True
-
 
 class ConversationCreateRequest(BaseModel):
     """Create a new conversation."""
@@ -255,6 +253,8 @@ class ConversationCreateRequest(BaseModel):
 
 class ConversationResponse(BaseModel):
     """Response for a conversation."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     title: str
     created_at: str
@@ -262,16 +262,9 @@ class ConversationResponse(BaseModel):
     message_count: int | None = None
     last_message_at: str | None = None
 
-    class Config:
-        from_attributes = True
-
-
 class ConversationDetailResponse(ConversationResponse):
     """Detailed response including messages."""
     messages: list[MessageSchema] = []
-
-    class Config:
-        from_attributes = True
 
 
 class ContinueChatRequest(BaseModel):

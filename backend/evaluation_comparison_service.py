@@ -231,7 +231,7 @@ class EvaluationRunner:
                 retrieved_chunk_ids=[],
                 retrieval_scores=[],
                 ai_model=ai_model,
-                error=str(exc),
+                error=f"{type(exc).__name__}: evaluation failed",
             )
 
     def _run_rag(
@@ -361,7 +361,7 @@ class EvaluationRunner:
                 retrieved_chunk_ids=[],
                 retrieval_scores=[],
                 ai_model=ai_model,
-                error=str(exc),
+                error=f"{type(exc).__name__}: evaluation failed",
             )
 
     @staticmethod

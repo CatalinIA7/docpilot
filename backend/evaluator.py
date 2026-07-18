@@ -3,6 +3,7 @@ Evaluation framework for measuring AI response quality and citation accuracy.
 Tracks metrics like latency, token usage, citation accuracy, and answer quality.
 """
 import time
+import logging
 from dataclasses import dataclass
 from sqlalchemy.orm import Session
 from ai_service import answer_question
@@ -10,6 +11,10 @@ from config import UPLOAD_DIR
 from document_parser import extract_document_text
 from models import BenchmarkQuestion, EvaluationRun, EvaluationResult, Document
 from schemas import Citation
+from observability import log_event
+
+
+logger = logging.getLogger("docpilot.evaluation")
 
 
 @dataclass
@@ -78,8 +83,16 @@ class Evaluator:
                     question=bq.question
                 )
                 latency = (time.perf_counter() - start_time) * 1000  # Convert to ms
-            except Exception as e:
-                print(f"Error evaluating question: {e}")
+            except Exception as exc:
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "evaluation_question_failed",
+                    "Benchmark question evaluation failed",
+                    document_id=doc.id,
+                    benchmark_question_id=bq.id,
+                    error_type=type(exc).__name__,
+                )
                 continue
 
             # Extract token usage from response metadata (if available)

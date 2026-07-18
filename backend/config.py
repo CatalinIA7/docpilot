@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+from urllib.parse import urlsplit
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -8,6 +9,8 @@ DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:5500",
     "null",
 )
+DEFAULT_TRUSTED_HOSTS = ("localhost", "127.0.0.1", "testserver")
+DEVELOPMENT_JWT_SECRET = "docpilot-development-only-secret-change-me"
 
 
 def _normalize_database_url(database_url: str) -> str:
@@ -33,17 +36,106 @@ def _parse_cors_origins(raw_origins: str | None) -> list[str]:
     return origins
 
 
+def _parse_bool(value: str | None, *, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_trusted_hosts(
+    raw_hosts: str | None,
+    *,
+    render_hostname: str | None = None,
+) -> list[str]:
+    """Build an exact Host allowlist, including Render's assigned hostname."""
+    hosts = [] if raw_hosts is not None else list(DEFAULT_TRUSTED_HOSTS)
+    if raw_hosts:
+        hosts.extend(host.strip().lower() for host in raw_hosts.split(",") if host.strip())
+    if render_hostname:
+        hosts.append(render_hostname.strip().lower())
+    return list(dict.fromkeys(hosts))
+
+
+def _is_exact_https_origin(origin: str) -> bool:
+    parsed = urlsplit(origin)
+    return (
+        parsed.scheme == "https"
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def validate_runtime_configuration(
+    *,
+    environment: str,
+    jwt_secret: str,
+    cors_origins: list[str],
+    trusted_hosts: list[str],
+) -> None:
+    """Fail closed when production would start with unsafe public settings."""
+    if environment != "production":
+        return
+
+    errors = []
+    if jwt_secret == DEVELOPMENT_JWT_SECRET or len(jwt_secret) < 32:
+        errors.append("JWT_SECRET_KEY must be a random value of at least 32 characters")
+    if not cors_origins or any(
+        origin in {"*", "null"} or not _is_exact_https_origin(origin)
+        for origin in cors_origins
+    ):
+        errors.append("DOCPILOT_CORS_ORIGINS must contain exact HTTPS origins")
+    if not trusted_hosts or "*" in trusted_hosts:
+        errors.append("DOCPILOT_TRUSTED_HOSTS must contain exact hostnames")
+
+    if errors:
+        raise RuntimeError("Unsafe production configuration: " + "; ".join(errors))
+
+
 DATABASE_URL = _normalize_database_url(
     os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'docpilot.db'}")
 )
+ENVIRONMENT = os.getenv("DOCPILOT_ENVIRONMENT", "development").strip().lower()
+IS_PRODUCTION = ENVIRONMENT == "production"
 UPLOAD_DIR = Path(os.getenv("DOCPILOT_UPLOAD_DIR", str(BASE_DIR / "uploads")))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 CORS_ORIGINS = _parse_cors_origins(os.getenv("DOCPILOT_CORS_ORIGINS"))
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production")
+_raw_trusted_hosts = os.getenv("DOCPILOT_TRUSTED_HOSTS")
+TRUSTED_HOSTS = _parse_trusted_hosts(
+    "" if IS_PRODUCTION and _raw_trusted_hosts is None else _raw_trusted_hosts,
+    render_hostname=os.getenv("RENDER_EXTERNAL_HOSTNAME"),
+)
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", DEVELOPMENT_JWT_SECRET)
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("DOCPILOT_ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24))
+)
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+MAX_REQUEST_SIZE = int(os.getenv("DOCPILOT_MAX_REQUEST_SIZE", str(11 * 1024 * 1024)))
+MAX_DOCX_UNCOMPRESSED_SIZE = int(
+    os.getenv("DOCPILOT_MAX_DOCX_UNCOMPRESSED_SIZE", str(50 * 1024 * 1024))
+)
+MAX_DOCX_ENTRIES = int(os.getenv("DOCPILOT_MAX_DOCX_ENTRIES", "2000"))
 ALLOWED_EXTENSIONS = {".docx", ".pdf"}
+API_DOCS_ENABLED = not IS_PRODUCTION
+
+# Lightweight per-process controls. Render currently runs one backend process.
+RATE_LIMIT_ENABLED = _parse_bool(
+    os.getenv("DOCPILOT_RATE_LIMIT_ENABLED"),
+    default=False,
+)
+AUTH_RATE_LIMIT_PER_MINUTE = int(
+    os.getenv("DOCPILOT_AUTH_RATE_LIMIT_PER_MINUTE", "20")
+)
+UPLOAD_RATE_LIMIT_PER_MINUTE = int(
+    os.getenv("DOCPILOT_UPLOAD_RATE_LIMIT_PER_MINUTE", "10")
+)
+AI_RATE_LIMIT_PER_MINUTE = int(
+    os.getenv("DOCPILOT_AI_RATE_LIMIT_PER_MINUTE", "30")
+)
 
 # Embedding configuration
 EMBEDDING_MODEL = os.getenv("DOCPILOT_EMBEDDING_MODEL", "text-embedding-3-small")

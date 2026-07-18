@@ -180,6 +180,18 @@ or SQL parameters.
 See [the production monitoring runbook](docs/monitoring.md) for configuration,
 event names, example queries, diagnosis workflows, and current limitations.
 
+## Security
+
+Production startup fails closed on weak JWT secrets, non-HTTPS/wildcard CORS,
+and wildcard/missing trusted hosts. API docs are development-only. Uploads are
+bounded and validated by extension, MIME, PDF/DOCX structure, DOCX expansion,
+and storage-path containment. Auth, upload, and AI routes have configurable
+production rate limits; both runtime containers use non-root users.
+
+CI audits the pinned Python dependencies. See [the security model and operator
+checklist](docs/security.md) for the full threat boundaries, configuration,
+implemented controls, audit evidence, and remaining limitations.
+
 ## Stop
 
 ```bash
