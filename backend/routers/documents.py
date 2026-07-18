@@ -67,6 +67,8 @@ async def upload_document(
         stored_path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=f"Could not parse document: {exc}")
 
+    # Extract only the fields needed for Document model (exclude internal _sections)
+    doc_data = {k: v for k, v in parsed.items() if not k.startswith("_")}
     document = Document(
         id=document_id,
         user_id=current_user.id,
@@ -74,7 +76,7 @@ async def upload_document(
         stored_filename=stored_filename,
         file_type=extension.removeprefix("."),
         size=len(content),
-        **parsed,
+        **doc_data,
     )
     db.add(document)
     db.commit()
