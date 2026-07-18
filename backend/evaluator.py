@@ -3,10 +3,10 @@ Evaluation framework for measuring AI response quality and citation accuracy.
 Tracks metrics like latency, token usage, citation accuracy, and answer quality.
 """
 import time
-from pathlib import Path
 from dataclasses import dataclass
 from sqlalchemy.orm import Session
 from ai_service import answer_question
+from config import UPLOAD_DIR
 from document_parser import extract_document_text
 from models import BenchmarkQuestion, EvaluationRun, EvaluationResult, Document
 from schemas import Citation
@@ -66,7 +66,7 @@ class Evaluator:
                 continue
 
             # Parse document to get sections
-            doc_path = Path(f"uploads/{doc.stored_filename}")
+            doc_path = UPLOAD_DIR / doc.stored_filename
             parsed = extract_document_text(doc_path)
             sections = parsed.get("_sections", [])
 

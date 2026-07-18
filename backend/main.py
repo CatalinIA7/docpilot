@@ -5,11 +5,12 @@ from routers.chat import router as chat_router
 from routers.documents import router as documents_router
 from routers.evaluation import router as evaluation_router
 from routers.conversations import router as conversations_router
+from config import CORS_ORIGINS
 
 app = FastAPI(title="DocPilot API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5500", "http://127.0.0.1:5500", "null"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

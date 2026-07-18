@@ -144,6 +144,26 @@ docker compose config
 docker compose build backend frontend
 ```
 
+## Production Deployment
+
+The production deployment target is Render. The root [`render.yaml`](render.yaml)
+Blueprint provisions:
+
+- Docker-based backend and static Nginx frontend services
+- Managed PostgreSQL 16 on Render's private network
+- An Alembic pre-deploy migration command
+- A persistent disk mounted at `/app/uploads`
+- Backend and frontend health checks
+- HTTPS endpoints managed by Render
+
+The Blueprint deploys from `main` only after GitHub checks pass. It prompts for the
+OpenAI key and the exact public frontend/backend URLs; no production secret or
+deployment-specific URL is committed to the repository.
+
+See [the Render deployment runbook](docs/deployment-render.md) for prerequisites,
+first-deploy steps, environment variables, migration behavior, persistence,
+backup and rollback guidance, verification, costs, and known limitations.
+
 ## Stop
 
 ```bash
