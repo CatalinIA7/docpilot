@@ -38,6 +38,10 @@ class DocumentResponse(BaseModel):
     created_at: datetime
 
 
+class DocumentDetailResponse(DocumentResponse):
+    text: str
+
+
 class DocumentSearchResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str

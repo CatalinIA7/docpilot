@@ -1,8 +1,18 @@
-.env
+uploads/
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+
+# Python cache
 __pycache__/
 *.pyc
-uploads/
-.venv/
-venv/
+
+# macOS
 .DS_Store
-.venv-3.10/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3

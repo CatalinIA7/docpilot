@@ -1,0 +1,211 @@
+"""
+Tests for POST /documents/{document_id}/chat.
+
+The AI service (answer_question) is always mocked — the real OpenAI API
+is never called.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import patch, MagicMock
+
+import pytest
+
+from ai_service import AIConfigError, AIProviderError
+
+_MOCK_TARGET = "routers.chat.answer_question"
+
+
+def _mock_answer(answer: str = "Mocked answer."):
+    """Return a patcher that makes answer_question return a fixed string."""
+    return patch(_MOCK_TARGET, return_value=answer)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def doc_with_text(client, auth_headers):
+    """Upload a DOCX (which has extractable text) and return its JSON."""
+    from tests.conftest import make_minimal_docx
+
+    resp = client.post(
+        "/documents",
+        files={"file": ("chat_test.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+@pytest.fixture()
+def doc_without_text(client, auth_headers, db_session):
+    """Insert a document row with empty text directly into the test DB."""
+    import uuid
+    from datetime import datetime
+    from models import Document
+
+    doc_id = str(uuid.uuid4())
+    doc = Document(
+        id=doc_id,
+        user_id=db_session.execute(
+            __import__("sqlalchemy").text("SELECT id FROM users WHERE email='test@example.com'")
+        ).scalar_one(),
+        filename="empty.pdf",
+        stored_filename=f"{doc_id}.pdf",
+        file_type="pdf",
+        size=10,
+        text="",
+        preview="",
+        word_count=0,
+        character_count=0,
+        paragraph_count=0,
+        created_at=datetime.utcnow(),
+    )
+    db_session.add(doc)
+    db_session.flush()
+    return {"id": doc_id}
+
+
+# ---------------------------------------------------------------------------
+# Auth & ownership
+# ---------------------------------------------------------------------------
+
+
+class TestChatAuth:
+    def test_unauthenticated_request_returns_401(self, client, doc_with_text):
+        resp = client.post(
+            f"/documents/{doc_with_text['id']}/chat",
+            json={"question": "What is this about?"},
+        )
+        assert resp.status_code == 401
+
+    def test_other_user_cannot_chat_with_document(
+        self, client, doc_with_text, second_user
+    ):
+        with _mock_answer():
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "What is this?"},
+                headers=second_user["headers"],
+            )
+        assert resp.status_code == 404
+
+    def test_nonexistent_document_returns_404(self, client, auth_headers):
+        with _mock_answer():
+            resp = client.post(
+                "/documents/no-such-id/chat",
+                json={"question": "Hello?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Happy path
+# ---------------------------------------------------------------------------
+
+
+class TestChatSuccess:
+    def test_successful_chat_returns_answer(self, client, auth_headers, doc_with_text):
+        with _mock_answer("This document is about fixtures."):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "What is this document about?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        assert resp.json()["answer"] == "This document is about fixtures."
+
+    def test_response_schema_has_answer_key(self, client, auth_headers, doc_with_text):
+        with _mock_answer("Some answer."):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "Tell me something."},
+                headers=auth_headers,
+            )
+        assert "answer" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+
+
+class TestChatValidation:
+    def test_empty_question_is_rejected(self, client, auth_headers, doc_with_text):
+        resp = client.post(
+            f"/documents/{doc_with_text['id']}/chat",
+            json={"question": ""},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_whitespace_only_question_is_rejected(self, client, auth_headers, doc_with_text):
+        resp = client.post(
+            f"/documents/{doc_with_text['id']}/chat",
+            json={"question": "   "},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_question_exceeding_max_length_is_rejected(
+        self, client, auth_headers, doc_with_text
+    ):
+        resp = client.post(
+            f"/documents/{doc_with_text['id']}/chat",
+            json={"question": "x" * 1001},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_missing_question_field_is_rejected(self, client, auth_headers, doc_with_text):
+        resp = client.post(
+            f"/documents/{doc_with_text['id']}/chat",
+            json={},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_document_with_empty_text_returns_400(
+        self, client, auth_headers, doc_without_text
+    ):
+        with _mock_answer():
+            resp = client.post(
+                f"/documents/{doc_without_text['id']}/chat",
+                json={"question": "What is this about?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 400
+        assert "text" in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+
+class TestChatErrors:
+    def test_missing_api_key_returns_503(self, client, auth_headers, doc_with_text):
+        with patch(_MOCK_TARGET, side_effect=AIConfigError("No key")):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "What is this?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 503
+        # Must not expose internal details
+        assert "OPENAI_API_KEY" not in resp.text
+        assert "No key" not in resp.text
+
+    def test_ai_provider_failure_returns_502(self, client, auth_headers, doc_with_text):
+        with patch(_MOCK_TARGET, side_effect=AIProviderError("upstream failure")):
+            resp = client.post(
+                f"/documents/{doc_with_text['id']}/chat",
+                json={"question": "What is this?"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 502
+        assert "upstream failure" not in resp.text
