@@ -1,5 +1,7 @@
 "use strict";
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = (
+  window.DOCPILOT_CONFIG?.API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
 let mode = "login";
 let token = localStorage.getItem("docpilot_token");
 let currentDocuments = [];

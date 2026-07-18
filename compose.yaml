@@ -41,6 +41,8 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-docpilot}:${POSTGRES_PASSWORD:-docpilot_local_password}@db:5432/${POSTGRES_DB:-docpilot}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DOCPILOT_CORS_ORIGINS: ${DOCPILOT_CORS_ORIGINS:-http://localhost:5500,http://127.0.0.1:5500,null}
+      DOCPILOT_UPLOAD_DIR: ${DOCPILOT_UPLOAD_DIR:-/app/uploads}
       DOCPILOT_AI_MODEL: ${DOCPILOT_AI_MODEL:-gpt-4o-mini}
       DOCPILOT_EMBEDDING_MODEL: ${DOCPILOT_EMBEDDING_MODEL:-text-embedding-3-small}
       DOCPILOT_EMBEDDING_BATCH_SIZE: ${DOCPILOT_EMBEDDING_BATCH_SIZE:-100}
@@ -70,6 +72,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      DOCPILOT_API_URL: ${DOCPILOT_API_URL:-http://127.0.0.1:8000}
     ports:
       - "${FRONTEND_PORT:-5500}:80"
     healthcheck:

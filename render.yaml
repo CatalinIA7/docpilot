@@ -1,0 +1,74 @@
+services:
+  - type: web
+    name: docpilot-backend
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    disk:
+      name: docpilot-uploads
+      mountPath: /app/uploads
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: docpilot-postgres
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DOCPILOT_CORS_ORIGINS
+        sync: false
+      - key: DOCPILOT_UPLOAD_DIR
+        value: /app/uploads
+      - key: DOCPILOT_AI_MODEL
+        value: gpt-4o-mini
+      - key: DOCPILOT_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: DOCPILOT_EMBEDDING_BATCH_SIZE
+        value: "100"
+      - key: DOCPILOT_RETRIEVAL_TOP_K
+        value: "5"
+      - key: DOCPILOT_RETRIEVAL_MIN_SCORE
+        value: "0.0"
+      - key: DOCPILOT_EVAL_MAX_LATENCY_MS
+        value: "5000.0"
+      - key: DOCPILOT_EVAL_MIN_CONTEXT_REDUCTION
+        value: "50.0"
+      - key: DOCPILOT_EVAL_MIN_CITATION_PRESERVATION
+        value: "0.8"
+      - key: DOCPILOT_EVAL_PERSIST_RESULTS
+        value: "true"
+      - key: DOCPILOT_CONVERSATION_MAX_MESSAGES
+        value: "10"
+
+  - type: web
+    name: docpilot-frontend
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    healthCheckPath: /
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: PORT
+        value: "80"
+      - key: DOCPILOT_API_URL
+        sync: false
+
+databases:
+  - name: docpilot-postgres
+    databaseName: docpilot
+    user: docpilot
+    plan: basic-256mb
+    region: frankfurt
+    postgresMajorVersion: "16"
+    ipAllowList: []
