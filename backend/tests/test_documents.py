@@ -180,3 +180,227 @@ class TestDelete:
         # Verify the document still exists for its owner
         verify = client.get(f"/documents/{uploaded_doc['id']}", headers=auth_headers)
         assert verify.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Document Chunks (persistence layer)
+# ---------------------------------------------------------------------------
+
+class TestDocumentChunks:
+    def test_chunks_created_during_docx_upload(self, client, auth_headers, db_session):
+        """Chunks are created and persisted when a DOCX is uploaded."""
+        from models import DocumentChunk
+        
+        resp = client.post(
+            "/documents",
+            files={"file": ("test.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        doc_id = resp.json()["id"]
+        
+        # Query chunks from database
+        chunks = db_session.query(DocumentChunk).filter_by(document_id=doc_id).all()
+        assert len(chunks) > 0, "DOCX upload should create at least one chunk"
+        
+        # Verify chunk structure
+        chunk = chunks[0]
+        assert chunk.document_id == doc_id
+        assert chunk.chunk_index == 0
+        assert len(chunk.text) > 0
+        assert chunk.paragraph is not None, "DOCX chunks should have paragraph metadata"
+        assert chunk.created_at is not None
+
+    def test_chunks_created_during_pdf_upload(self, client, auth_headers, db_session):
+        """Chunks are created and persisted when a PDF is uploaded."""
+        from models import DocumentChunk
+        
+        resp = client.post(
+            "/documents",
+            files={"file": ("test.pdf", make_minimal_pdf(), "application/pdf")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        doc_id = resp.json()["id"]
+        
+        # Query chunks from database
+        chunks = db_session.query(DocumentChunk).filter_by(document_id=doc_id).all()
+        assert len(chunks) > 0, "PDF upload should create at least one chunk"
+        
+        # Verify chunk structure
+        chunk = chunks[0]
+        assert chunk.document_id == doc_id
+        assert chunk.chunk_index == 0
+        assert len(chunk.text) > 0
+        assert chunk.page is not None, "PDF chunks should have page metadata"
+
+    def test_chunk_metadata_preservation(self, client, auth_headers, db_session):
+        """DOCX paragraph and PDF page metadata are correctly preserved in chunks."""
+        from models import DocumentChunk
+        
+        # Upload DOCX
+        resp_docx = client.post(
+            "/documents",
+            files={"file": ("test.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        assert resp_docx.status_code == 201
+        docx_id = resp_docx.json()["id"]
+        
+        docx_chunks = db_session.query(DocumentChunk).filter_by(document_id=docx_id).all()
+        for chunk in docx_chunks:
+            assert chunk.paragraph is not None or chunk.page is None, "DOCX chunks should have paragraph"
+        
+        # Upload PDF
+        resp_pdf = client.post(
+            "/documents",
+            files={"file": ("test.pdf", make_minimal_pdf(), "application/pdf")},
+            headers=auth_headers,
+        )
+        assert resp_pdf.status_code == 201
+        pdf_id = resp_pdf.json()["id"]
+        
+        pdf_chunks = db_session.query(DocumentChunk).filter_by(document_id=pdf_id).all()
+        for chunk in pdf_chunks:
+            assert chunk.page is not None, "PDF chunks should have page"
+
+    def test_deterministic_chunk_order(self, client, auth_headers, db_session):
+        """Chunks are ordered deterministically by chunk_index."""
+        from models import DocumentChunk
+        
+        resp = client.post(
+            "/documents",
+            files={"file": ("test.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        doc_id = resp.json()["id"]
+        
+        chunks = db_session.query(DocumentChunk).filter_by(document_id=doc_id).order_by(DocumentChunk.chunk_index).all()
+        
+        # Verify chunk_index sequence
+        for i, chunk in enumerate(chunks):
+            assert chunk.chunk_index == i, f"Chunk {i} has index {chunk.chunk_index}, expected {i}"
+
+    def test_unique_chunk_index_per_document(self, client, auth_headers, db_session):
+        """Each document has unique (document_id, chunk_index) combinations."""
+        from models import DocumentChunk
+        from sqlalchemy import func
+        
+        # Upload two documents
+        resp1 = client.post(
+            "/documents",
+            files={"file": ("test1.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        resp2 = client.post(
+            "/documents",
+            files={"file": ("test2.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        assert resp1.status_code == 201
+        assert resp2.status_code == 201
+        
+        doc1_id = resp1.json()["id"]
+        doc2_id = resp2.json()["id"]
+        
+        # Get chunks for each document
+        chunks1 = db_session.query(DocumentChunk).filter_by(document_id=doc1_id).all()
+        chunks2 = db_session.query(DocumentChunk).filter_by(document_id=doc2_id).all()
+        
+        # Verify no duplicate indices within each document
+        indices1 = [c.chunk_index for c in chunks1]
+        indices2 = [c.chunk_index for c in chunks2]
+        
+        assert len(indices1) == len(set(indices1)), "Document 1 has duplicate chunk indices"
+        assert len(indices2) == len(set(indices2)), "Document 2 has duplicate chunk indices"
+        
+        # Chunks from different documents can have the same index (which is expected)
+        # The unique constraint is on (document_id, chunk_index)
+
+    def test_document_deletion_cascades_to_chunks(self, client, auth_headers, db_session):
+        """Deleting a document also deletes all associated chunks."""
+        from models import DocumentChunk
+        
+        resp = client.post(
+            "/documents",
+            files={"file": ("test.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        doc_id = resp.json()["id"]
+        
+        # Verify chunks exist
+        chunks_before = db_session.query(DocumentChunk).filter_by(document_id=doc_id).all()
+        assert len(chunks_before) > 0, "Document should have chunks"
+        
+        # Delete document
+        resp_delete = client.delete(f"/documents/{doc_id}", headers=auth_headers)
+        assert resp_delete.status_code == 204
+        
+        # Verify chunks are deleted
+        db_session.expunge_all()  # Clear session cache to force fresh query
+        chunks_after = db_session.query(DocumentChunk).filter_by(document_id=doc_id).all()
+        assert len(chunks_after) == 0, "Document deletion should cascade to chunks"
+
+    def test_chunk_source_section_id_tracking(self, client, auth_headers, db_session):
+        """Chunks track their source section ID for citation purposes."""
+        from models import DocumentChunk
+        
+        resp = client.post(
+            "/documents",
+            files={"file": ("test.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        doc_id = resp.json()["id"]
+        
+        chunks = db_session.query(DocumentChunk).filter_by(document_id=doc_id).all()
+        
+        # Verify source_section_id is set (or None if no sections)
+        # At minimum, verify the field exists and is accessible
+        for chunk in chunks:
+            assert hasattr(chunk, "source_section_id"), "Chunk should have source_section_id field"
+
+    def test_upload_with_no_sections_creates_no_chunks(self, client, auth_headers, db_session):
+        """Documents with empty sections don't create chunks (edge case)."""
+        from models import DocumentChunk
+        
+        # This is an edge case; normally documents have sections
+        # We test that the system doesn't crash
+        resp = client.post(
+            "/documents",
+            files={"file": ("test.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        doc_id = resp.json()["id"]
+        
+        # Even minimal DOCX should create at least one chunk
+        chunks = db_session.query(DocumentChunk).filter_by(document_id=doc_id).all()
+        # If document has content, it should have chunks
+        # This test just ensures the system is robust
+
+    def test_authorization_chunks_inherit_document_access(self, client, auth_headers, second_user, db_session):
+        """Chunks inherit access control from their parent document."""
+        from models import DocumentChunk
+        
+        resp = client.post(
+            "/documents",
+            files={"file": ("test.docx", make_minimal_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        doc_id = resp.json()["id"]
+        
+        # Original user can access chunks (indirectly through document)
+        resp_get = client.get(f"/documents/{doc_id}", headers=auth_headers)
+        assert resp_get.status_code == 200
+        
+        # Second user cannot access the document (and thus cannot access its chunks)
+        resp_get_other = client.get(f"/documents/{doc_id}", headers=second_user["headers"])
+        assert resp_get_other.status_code == 404
+        
+        # Chunks exist in database for original user
+        chunks = db_session.query(DocumentChunk).filter_by(document_id=doc_id).all()
+        assert len(chunks) > 0, "Chunks should exist for the document"

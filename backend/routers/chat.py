@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ai_service import AIConfigError, AIProviderError, answer_question
 from auth import get_current_user
+from config import UPLOAD_DIR
 from database import get_db
 from document_parser import extract_document_text
 from models import Document, User
@@ -80,7 +81,7 @@ def chat_with_document(
     # Note: extract_document_text() returns _sections in a special key
     # that is not stored in the DB, only used for AI requests.
     extracted = extract_document_text(
-        __import__("pathlib").Path(f"uploads/{document.stored_filename}")
+        UPLOAD_DIR / document.stored_filename
     )
     sections = extracted.get("_sections", [])
 
