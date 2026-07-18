@@ -212,9 +212,11 @@ def mock_embed_texts(monkeypatch):
         # In real use, this would be 384-dimensional vectors from text-embedding-3-small
         return [[float(i) * 0.01 for _ in range(10)] for i in range(len(texts))]
     
-    # Patch where embed_texts is imported and used
+    # Patch where embed_texts is imported and used in multiple places
     import routers.documents
+    import retrieval_service
     monkeypatch.setattr(routers.documents, "embed_texts", mock_embeddings)
+    monkeypatch.setattr(retrieval_service, "embed_texts", mock_embeddings)
 
 
 # ---------------------------------------------------------------------------

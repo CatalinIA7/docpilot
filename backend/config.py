@@ -14,3 +14,7 @@ ALLOWED_EXTENSIONS = {".docx", ".pdf"}
 # Embedding configuration
 EMBEDDING_MODEL = os.getenv("DOCPILOT_EMBEDDING_MODEL", "text-embedding-3-small")
 EMBEDDING_BATCH_SIZE = int(os.getenv("DOCPILOT_EMBEDDING_BATCH_SIZE", "100"))
+
+# Retrieval configuration
+RETRIEVAL_TOP_K = int(os.getenv("DOCPILOT_RETRIEVAL_TOP_K", "5"))
+RETRIEVAL_MIN_SCORE = float(os.getenv("DOCPILOT_RETRIEVAL_MIN_SCORE", "0.0"))
