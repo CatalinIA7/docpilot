@@ -16,7 +16,13 @@
     .chat-input:focus{outline:none;border-color:#7c3aed;box-shadow:0 0 0 3px #7c3aed33}
     .chat-answer-container{padding:12px;background:#f9fafb;border-radius:8px}
     .chat-answer-label{font-weight:600;font-size:14px;margin-bottom:6px;color:#374151}
-    .chat-answer{margin:0;line-height:1.6;color:#111827}
+    .chat-answer{margin:0 0 12px 0;line-height:1.6;color:#111827;word-wrap:break-word}
+    .chat-citations{border-top:1px solid #e5e7eb;padding-top:12px;margin-top:12px}
+    .chat-citations-label{font-weight:600;font-size:13px;margin-bottom:8px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px}
+    .chat-citations-list{display:flex;flex-direction:column;gap:10px}
+    .chat-citation{padding:8px;background:#fff;border-left:3px solid #7c3aed;border-radius:4px;font-size:13px}
+    .chat-citation-location{font-weight:600;color:#7c3aed;margin-bottom:4px}
+    .chat-citation-excerpt{margin:0;font-size:12px;line-height:1.5;color:#374151;font-style:italic;word-wrap:break-word}
   </style>
 </head>
 <body>
@@ -85,6 +91,10 @@
                 <div id="chat-answer-container" class="chat-answer-container hidden">
                   <div class="chat-answer-label">Answer:</div>
                   <p id="chat-answer" class="chat-answer"></p>
+                  <div id="chat-citations" class="chat-citations hidden">
+                    <div class="chat-citations-label">Sources:</div>
+                    <div id="chat-citations-list" class="chat-citations-list"></div>
+                  </div>
                 </div>
               </div>
             </section>

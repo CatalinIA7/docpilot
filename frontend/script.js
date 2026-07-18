@@ -38,6 +38,8 @@ const chatAskButton = $("#chat-ask-button");
 const chatError = $("#chat-error");
 const chatAnswerContainer = $("#chat-answer-container");
 const chatAnswer = $("#chat-answer");
+const chatCitations = $("#chat-citations");
+const chatCitationsList = $("#chat-citations-list");
 
 function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -129,8 +131,49 @@ function resetChatPanel() {
   if (chatQuestion) chatQuestion.value = "";
   if (chatError) chatError.classList.add("hidden");
   if (chatAnswerContainer) chatAnswerContainer.classList.add("hidden");
+  if (chatCitations) chatCitations.classList.add("hidden");
+  if (chatCitationsList) chatCitationsList.innerHTML = "";
   isChatPending = false;
   if (chatAskButton) chatAskButton.disabled = false;
+}
+
+function renderCitations(citations) {
+  if (!chatCitationsList) return;
+  chatCitationsList.innerHTML = "";
+  
+  if (!citations || citations.length === 0) {
+    if (chatCitations) chatCitations.classList.add("hidden");
+    return;
+  }
+  
+  citations.forEach((citation) => {
+    const citationEl = document.createElement("div");
+    citationEl.className = "chat-citation";
+    
+    // Build location text
+    let locationText = `Source ${citation.source_id}`;
+    if (citation.page !== null && citation.page !== undefined) {
+      locationText += ` • Page ${citation.page}`;
+    } else if (citation.paragraph !== null && citation.paragraph !== undefined) {
+      locationText += ` • Paragraph ${citation.paragraph}`;
+    }
+    
+    // Create location element
+    const locationEl = document.createElement("div");
+    locationEl.className = "chat-citation-location";
+    locationEl.textContent = locationText;
+    citationEl.appendChild(locationEl);
+    
+    // Create excerpt element
+    const excerptEl = document.createElement("p");
+    excerptEl.className = "chat-citation-excerpt";
+    excerptEl.textContent = citation.excerpt || "";
+    citationEl.appendChild(excerptEl);
+    
+    chatCitationsList.appendChild(citationEl);
+  });
+  
+  if (chatCitations) chatCitations.classList.remove("hidden");
 }
 
 async function askAIQuestion() {
@@ -152,6 +195,7 @@ async function askAIQuestion() {
       body: JSON.stringify({ question }),
     });
     if (chatAnswer) chatAnswer.textContent = response.answer || "No answer received.";
+    renderCitations(response.citations || []);
     if (chatAnswerContainer) chatAnswerContainer.classList.remove("hidden");
   } catch (error) {
     let friendlyMessage = "Unable to get an answer. Please try again.";
