@@ -56,6 +56,7 @@ class DocumentChunk(Base):
     page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     paragraph: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_section_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
