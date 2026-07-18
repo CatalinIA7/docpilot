@@ -18,3 +18,9 @@ EMBEDDING_BATCH_SIZE = int(os.getenv("DOCPILOT_EMBEDDING_BATCH_SIZE", "100"))
 # Retrieval configuration
 RETRIEVAL_TOP_K = int(os.getenv("DOCPILOT_RETRIEVAL_TOP_K", "5"))
 RETRIEVAL_MIN_SCORE = float(os.getenv("DOCPILOT_RETRIEVAL_MIN_SCORE", "0.0"))
+
+# Evaluation comparison configuration
+EVAL_MAX_LATENCY_MS = float(os.getenv("DOCPILOT_EVAL_MAX_LATENCY_MS", "5000.0"))
+EVAL_MIN_CONTEXT_REDUCTION = float(os.getenv("DOCPILOT_EVAL_MIN_CONTEXT_REDUCTION", "50.0"))
+EVAL_MIN_CITATION_PRESERVATION = float(os.getenv("DOCPILOT_EVAL_MIN_CITATION_PRESERVATION", "0.8"))
+EVAL_PERSIST_RESULTS = os.getenv("DOCPILOT_EVAL_PERSIST_RESULTS", "true").lower() in ("true", "1", "yes")

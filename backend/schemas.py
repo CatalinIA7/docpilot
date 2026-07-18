@@ -141,3 +141,78 @@ class EvaluationComparisonResponse(BaseModel):
     token_improvement: float  # Percentage improvement
     citation_accuracy_improvement: float
     answer_quality_improvement: float
+
+
+# ============================================================================
+# RAG Evaluation Comparison Schemas
+# ============================================================================
+
+
+class EvaluationRunMetricsSchema(BaseModel):
+    """Metrics for a single evaluation mode run (baseline or RAG)."""
+
+    mode: str  # "baseline" or "rag"
+    success: bool
+    total_latency_ms: float
+    embedding_latency_ms: float
+    retrieval_latency_ms: float
+    generation_latency_ms: float
+    prompt_character_count: int
+    response_character_count: int
+    citation_count: int
+    retrieved_chunk_count: int
+    retrieved_chunk_ids: list[int]
+    retrieval_scores: list[float]
+    ai_model: str
+    embedding_model: str | None = None
+    embedding_dimension: int | None = None
+    answer_text: str = ""
+    error: str | None = None
+
+
+class ComparisonMetricsSchema(BaseModel):
+    """Derived metrics comparing baseline vs RAG."""
+
+    context_reduction_percent: float
+    latency_difference_ms: float
+    latency_improvement_percent: float
+    generation_latency_difference_ms: float
+    citation_difference: int
+    retrieved_chunk_avg_similarity: float
+    retrieved_chunk_highest_similarity: float
+    retrieved_chunk_lowest_similarity: float
+    status: str  # "PASS", "WARNING", "FAIL"
+    status_reason: str
+
+
+class RAGEvaluationComparisonSchema(BaseModel):
+    """Complete comparison result between baseline and RAG."""
+
+    question: str
+    document_id: str
+    baseline: EvaluationRunMetricsSchema
+    rag: EvaluationRunMetricsSchema
+    comparison: ComparisonMetricsSchema
+
+
+class RAGEvaluationComparisonRequest(BaseModel):
+    """Request to run a RAG evaluation comparison."""
+
+    question: str = Field(..., min_length=1, max_length=1000)
+    store_result: bool = True  # Whether to persist the comparison
+
+
+class RAGEvaluationComparisonResponse(BaseModel):
+    """Stored evaluation comparison response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    question: str
+    document_id: str
+    baseline_latency_ms: float
+    rag_latency_ms: float
+    context_reduction_percent: float
+    citation_difference: int
+    comparison_status: str
+    created_at: str
