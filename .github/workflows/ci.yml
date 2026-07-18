@@ -19,111 +19,37 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: backend
-    env:
-      JWT_SECRET_KEY: ci-test-secret-not-for-production
-      DATABASE_URL: sqlite:///./docpilot_ci.db
-      OPENAI_API_KEY: ci-fake-openai-key
-      DOCPILOT_AI_MODEL: gpt-4o-mini
-      DOCPILOT_EMBEDDING_MODEL: text-embedding-3-small
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Install backend dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run backend test suite
-        run: pytest
-
-  frontend-validation:
-    name: Frontend validation
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Validate static frontend assets
-        run: |
-          test -f frontend/index.html
-          test -f frontend/script.js
-          test -f frontend/style.css
-
-  compose-config:
-    name: Docker Compose config
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Create CI environment file
-        run: |
-          cat > .env.ci << 'EOF'
-          JWT_SECRET_KEY=ci-test-secret-not-for-production
-          OPENAI_API_KEY=ci-fake-openai-key
-          POSTGRES_DB=docpilot_ci
-          POSTGRES_USER=docpilot_ci
-          POSTGRES_PASSWORD=docpilot_ci_password
-          BACKEND_PORT=8000
-          FRONTEND_PORT=5500
-          DOCPILOT_AI_MODEL=gpt-4o-mini
-          DOCPILOT_EMBEDDING_MODEL=text-embedding-3-small
-          DOCPILOT_EMBEDDING_BATCH_SIZE=100
-          DOCPILOT_RETRIEVAL_TOP_K=5
-          DOCPILOT_RETRIEVAL_MIN_SCORE=0.0
-          DOCPILOT_EVAL_MAX_LATENCY_MS=5000.0
-          DOCPILOT_EVAL_MIN_CONTEXT_REDUCTION=50.0
-          DOCPILOT_EVAL_MIN_CITATION_PRESERVATION=0.8
-          DOCPILOT_EVAL_PERSIST_RESULTS=true
-          DOCPILOT_CONVERSATION_MAX_MESSAGES=10
-          EOF
+        run: sh scripts/create-ci-env.sh
+
+      - name: Run backend test suite in Docker
+        run: docker compose --env-file .env.ci run --rm backend pytest
+
+      - name: Show service logs after failure
+        if: failure()
+        run: docker compose --env-file .env.ci logs --no-color db backend
+
+      - name: Clean up test containers and volumes
+        if: always()
+        run: docker compose --env-file .env.ci down --volumes --remove-orphans
+
+  docker-validation:
+    name: Docker validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Create CI environment file
+        run: sh scripts/create-ci-env.sh
 
       - name: Validate Compose configuration
         run: docker compose --env-file .env.ci config
-
-  docker-build:
-    name: Docker image builds
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: compose-config
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Create CI environment file
-        run: |
-          cat > .env.ci << 'EOF'
-          JWT_SECRET_KEY=ci-test-secret-not-for-production
-          OPENAI_API_KEY=ci-fake-openai-key
-          POSTGRES_DB=docpilot_ci
-          POSTGRES_USER=docpilot_ci
-          POSTGRES_PASSWORD=docpilot_ci_password
-          BACKEND_PORT=8000
-          FRONTEND_PORT=5500
-          DOCPILOT_AI_MODEL=gpt-4o-mini
-          DOCPILOT_EMBEDDING_MODEL=text-embedding-3-small
-          DOCPILOT_EMBEDDING_BATCH_SIZE=100
-          DOCPILOT_RETRIEVAL_TOP_K=5
-          DOCPILOT_RETRIEVAL_MIN_SCORE=0.0
-          DOCPILOT_EVAL_MAX_LATENCY_MS=5000.0
-          DOCPILOT_EVAL_MIN_CONTEXT_REDUCTION=50.0
-          DOCPILOT_EVAL_MIN_CITATION_PRESERVATION=0.8
-          DOCPILOT_EVAL_PERSIST_RESULTS=true
-          DOCPILOT_CONVERSATION_MAX_MESSAGES=10
-          EOF
 
       - name: Build backend and frontend images
         run: docker compose --env-file .env.ci build backend frontend

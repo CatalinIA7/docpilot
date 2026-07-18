@@ -1,17 +1,7 @@
-FROM node:22.14.0-alpine AS build
-
-WORKDIR /src
-
-COPY . .
-
-# Validate expected static frontend assets exist.
-RUN test -f index.html && test -f script.js && test -f style.css
-
-
-FROM nginx:1.27.5-alpine AS runtime
+FROM nginx:1.27.5-alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /src /usr/share/nginx/html
+COPY index.html script.js style.css /usr/share/nginx/html/
 
 EXPOSE 80
 
