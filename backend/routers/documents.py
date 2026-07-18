@@ -7,7 +7,8 @@ from auth import get_current_user
 from config import ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE, UPLOAD_DIR
 from database import get_db
 from document_parser import extract_document_text
-from models import Document, User
+from chunking import Chunker, ChunkingConfig
+from models import Document, DocumentChunk, User
 from schemas import DocumentResponse, DocumentSearchResponse, DocumentDetailResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -78,6 +79,36 @@ async def upload_document(
         size=len(content),
         **doc_data,
     )
+    
+    # Extract sections for chunking (from the internal _sections list)
+    sections = parsed.get("_sections", [])
+    if sections:
+        try:
+            # Generate chunks using the chunking module
+            chunker = Chunker(ChunkingConfig())
+            chunks = chunker.chunk(sections)
+            
+            # Create database chunk records
+            db_chunks = [
+                DocumentChunk(
+                    document_id=document_id,
+                    chunk_index=chunk.chunk_index,
+                    text=chunk.text,
+                    page=chunk.page,
+                    paragraph=chunk.paragraph,
+                    source_section_id=chunk.source_section_id,
+                )
+                for chunk in chunks
+            ]
+            
+            # Add all chunks to the session
+            for chunk in db_chunks:
+                db.add(chunk)
+        except Exception as exc:
+            stored_path.unlink(missing_ok=True)
+            db.rollback()
+            raise HTTPException(status_code=422, detail=f"Could not generate document chunks: {exc}")
+    
     db.add(document)
     db.commit()
     db.refresh(document)
