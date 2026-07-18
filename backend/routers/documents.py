@@ -8,7 +8,7 @@ from config import ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE, UPLOAD_DIR
 from database import get_db
 from document_parser import extract_document_text
 from models import Document, User
-from schemas import DocumentResponse, DocumentSearchResponse
+from schemas import DocumentResponse, DocumentSearchResponse, DocumentDetailResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -148,3 +148,20 @@ def delete_document(
     (UPLOAD_DIR / document.stored_filename).unlink(missing_ok=True)
     db.delete(document)
     db.commit()
+
+
+@router.get("/{document_id}", response_model=DocumentDetailResponse)
+def get_document(
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.scalar(
+        select(Document).where(
+            Document.id == document_id,
+            Document.user_id == current_user.id,
+        )
+    )
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return document
