@@ -54,23 +54,56 @@ docker compose up -d --build
 docker compose logs -f
 docker compose logs -f backend
 docker compose logs -f db
+docker compose logs migrate
 docker compose logs -f frontend
 ```
 
 ## Database Migrations
 
-This repository currently does not use Alembic or another migration framework.
+Alembic migrations are the production source of truth for the database schema. The
+backend no longer creates tables during application import or startup.
 
-Current behavior:
-
-- the backend creates tables at startup via SQLAlchemy metadata (`Base.metadata.create_all(...)`)
-- startup requires a reachable database and uses `db` as the hostname in Compose
-
-Manual schema initialization command (rarely needed because startup already does this):
+With Docker Compose, the one-shot `migrate` service runs `alembic upgrade head`
+after PostgreSQL is healthy. The backend starts only after that migration succeeds,
+so a fresh database is initialized by the normal startup command:
 
 ```bash
-docker compose run --rm backend python -c "from database import Base, engine; import models; Base.metadata.create_all(bind=engine)"
+docker compose up --build
 ```
+
+Useful migration commands:
+
+```bash
+docker compose run --rm migrate
+docker compose run --rm migrate alembic current
+docker compose run --rm migrate alembic history
+docker compose run --rm migrate alembic check
+```
+
+For a non-Docker backend run, activate the backend virtual environment and run
+`alembic upgrade head` from the `backend` directory before starting Uvicorn.
+
+### Adopting An Existing Pre-Alembic Database
+
+The baseline migration represents the schema previously created by
+`Base.metadata.create_all(...)`. Applying that create-table migration directly to
+an existing DocPilot database would fail because the tables already exist.
+
+Before adopting an existing database, take a database backup and verify that its
+schema matches the current nine DocPilot tables. Then record the reviewed baseline
+without running its DDL and validate that the models have no pending differences:
+
+```bash
+docker compose up -d db
+docker compose build migrate
+docker compose run --rm --no-deps migrate alembic stamp 20260718_0001
+docker compose run --rm --no-deps migrate alembic check
+docker compose up -d
+```
+
+`stamp` only writes the Alembic revision marker; it does not create, alter, or drop
+application tables. Do not stamp a database whose schema differs from the baseline.
+Future migrations should be applied normally with `alembic upgrade head`.
 
 ## Tests
 
@@ -92,6 +125,8 @@ It runs on:
 
 CI validates:
 
+- Alembic upgrade to the latest revision on a fresh PostgreSQL database
+- Migration drift with `alembic check`
 - Full backend test suite using the repository command (`docker compose run --rm backend pytest`)
 - Frontend Docker image build (frontend is static and has no npm build step)
 - Docker Compose configuration (`docker compose config`)
@@ -102,6 +137,8 @@ CI in this repository does not deploy infrastructure and does not publish contai
 Local equivalents:
 
 ```bash
+docker compose run --rm migrate
+docker compose run --rm migrate alembic check
 docker compose run --rm backend pytest
 docker compose config
 docker compose build backend frontend
@@ -159,6 +196,7 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 export JWT_SECRET_KEY="replace-with-a-long-random-secret"
+alembic upgrade head
 uvicorn main:app --reload
 ```
 

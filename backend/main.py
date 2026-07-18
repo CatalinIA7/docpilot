@@ -1,13 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import Base, engine
 from routers.auth_routes import router as auth_router
 from routers.chat import router as chat_router
 from routers.documents import router as documents_router
 from routers.evaluation import router as evaluation_router
 from routers.conversations import router as conversations_router
-
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="DocPilot API", version="1.0.0")
 app.add_middleware(
